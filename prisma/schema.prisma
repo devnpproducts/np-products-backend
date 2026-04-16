@@ -1,0 +1,225 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  user         String   @unique
+  password     String
+  name         String?
+  role         String?
+  dni          String?
+  passwordView String?
+  status       Boolean  @default(true)
+  managerId    Int?     @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  registeredChangesUser    RegisterChanceUser[]     @relation("UserTarget")
+  createdChangesUser       RegisterChanceUser[]     @relation("UserCreator")
+  logSesion                LogSesion[]              @relation("UserCreatorlog")
+  creatorSale              RegisterSales[]          @relation("UserCreatorSale")
+  creatorChanceSale        RegisterChanceSales[]    @relation("UserCreatorChangeSale")
+  registerChanceClients    RegisterChanceClient[]   @relation("UserCreatorChangeClient")
+  registerChargerProducts  Products[]               @relation("UserCreatorProducts")
+  registerChangeProducts   RegisterChanceProducts[] @relation("UserCreatorChangeProduct")
+  campaigns                Campaigns[]              @relation("UserCreatorCampaign")
+  creatorProspects         Prospects[]              @relation("UserCreatorProspects")
+  sellerProspects          Prospects[]              @relation("sellerProspects")
+  userCreatorBaseProspects BaseProspects[]          @relation("UserCreatorBaseProspects")
+  baseProspects            BaseProspects[]          @relation("sellerBaseProspects")
+  notifications            Notifications[]          @relation("notificationCreator")
+}
+
+model RegisterChanceUser {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation("UserTarget", fields: [userId], references: [id])
+  userCreatorId Int
+  creator       User     @relation("UserCreator", fields: [userCreatorId], references: [id])
+  change        String?
+  createdAt     DateTime @default(now())
+}
+
+model RegisterChanceClient {
+  id            Int      @id @default(autoincrement())
+  userCreatorId Int
+  creator       User     @relation("UserCreatorChangeClient", fields: [userCreatorId], references: [id])
+  change        String?
+  createdAt     DateTime @default(now())
+}
+
+model RegisterChanceSales {
+  id            Int           @id @default(autoincrement())
+  userCreatorId Int
+  creator       User          @relation("UserCreatorChangeSale", fields: [userCreatorId], references: [id])
+  saleId        Int
+  sale          RegisterSales @relation("idChangeSale", fields: [saleId], references: [id])
+  change        String?
+  createdAt     DateTime      @default(now())
+}
+
+model RegisterSales {
+  id            Int  @id @default(autoincrement())
+  userCreatorId Int
+  creator       User @relation("UserCreatorSale", fields: [userCreatorId], references: [id])
+
+  // Datos del Cliente
+  clientName     String
+  clientLastName String
+  phone          String
+  address        String
+  city           String
+  state          String
+  zipCode        String
+
+  // Datos de la Venta
+  purchaseDate        DateTime @default(now())
+  grossAmount         Float // Monto Bruto
+  netAmount           Float // Monto Neto
+  paymentMethod       String // Ejemplo: Tarjeta, Efectivo, PayPal
+  comments            String?  @db.Text
+  paymentInstallments Int      @default(0)
+
+  // Datos de Pago (Sensibles)
+  cardHolder String?
+  cardNumber String? // ¡Ojo! En producción esto debería estar encriptado o tokenizado
+  cardExp    String?
+  cardCvc    String?
+
+  // Datos de Envío
+  trackingNumber String?
+  trackingLink   String?
+  packageStatus  String?   @default("PENDIENTE")
+  deliveryDate   DateTime?
+
+  status   Boolean        @default(true)
+  products SaleProducts[] @relation("saleProducts")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registerChanceClients RegisterChanceSales[] @relation("idChangeSale")
+}
+
+model LogSesion {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation("UserCreatorlog", fields: [userId], references: [id])
+  ip        String?
+  device    String?
+  createdAt DateTime @default(now())
+}
+
+model Products {
+  id            Int      @id @default(autoincrement())
+  userCreatorId Int
+  creator       User     @relation("UserCreatorProducts", fields: [userCreatorId], references: [id])
+  sku           String
+  stock         Int
+  price         Float?
+  status        Boolean
+  createdAt     DateTime @default(now())
+
+  registerChance RegisterChanceProducts[] @relation("idChangeProduct")
+}
+
+model SaleProducts {
+  id     Int           @id @default(autoincrement())
+  saleId Int
+  sale   RegisterSales @relation("saleProducts", fields: [saleId], references: [id])
+
+  productName String // Aquí iría "CELL PLUS", "4MEN PROST", etc.
+  quantity    Int    @default(1)
+  price       Float // Precio al momento de la venta
+}
+
+model RegisterChanceProducts {
+  id            Int      @id @default(autoincrement())
+  userCreatorId Int
+  creator       User     @relation("UserCreatorChangeProduct", fields: [userCreatorId], references: [id])
+  productId     Int
+  product       Products @relation("idChangeProduct", fields: [productId], references: [id])
+  change        String?
+  createdAt     DateTime @default(now())
+}
+
+model Campaigns {
+  id            Int         @id @default(autoincrement())
+  userCreatorId Int
+  creator       User        @relation("UserCreatorCampaign", fields: [userCreatorId], references: [id])
+  name          String?
+  status        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  prospects     Prospects[] @relation("campaignId")
+}
+
+model Prospects {
+  id            Int       @id @default(autoincrement())
+  userCreatorId Int
+  creator       User      @relation("UserCreatorProspects", fields: [userCreatorId], references: [id])
+  names         String?
+  lastNames     String?
+  sellerId      Int?
+  seller        User?     @relation("sellerProspects", fields: [sellerId], references: [id])
+  phone         String?
+  email         String?
+  campaignId    Int       @default(1)
+  campaign      Campaigns @relation("campaignId", fields: [campaignId], references: [id])
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?
+  origin        String?
+  status        Boolean   @default(true)
+  isContacted   Boolean   @default(false)
+  contactedAt   DateTime?
+  isSale        Boolean   @default(false)
+  soldAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model BaseProspects {
+  id            Int      @id @default(autoincrement())
+  userCreatorId Int
+  creator       User     @relation("UserCreatorBaseProspects", fields: [userCreatorId], references: [id])
+  names         String?
+  lastNames     String?
+  sellerId      Int?
+  seller        User?    @relation("sellerBaseProspects", fields: [sellerId], references: [id])
+  phone         String?
+  email         String?
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?
+  origin        String?
+  processing    String?
+  status        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Notifications {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  type      String
+  userId    Int? // Quién generó la acción
+  user      User?    @relation("notificationCreator", fields: [userId], references: [id])
+  metadata  Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
