@@ -39,6 +39,9 @@ model User {
   userCreatorBaseProspects BaseProspects[]          @relation("UserCreatorBaseProspects")
   baseProspects            BaseProspects[]          @relation("sellerBaseProspects")
   notifications            Notifications[]          @relation("notificationCreator")
+  campaignsseller          Campaigns[]              @relation("sellerCampaigns")
+  prospectHistories        ProspectHistory[]
+  prospectImports          ProspectImport[]
 }
 
 model RegisterChanceUser {
@@ -155,40 +158,50 @@ model RegisterChanceProducts {
 }
 
 model Campaigns {
-  id            Int         @id @default(autoincrement())
-  userCreatorId Int
-  creator       User        @relation("UserCreatorCampaign", fields: [userCreatorId], references: [id])
-  name          String?
-  status        Boolean     @default(true)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  prospects     Prospects[] @relation("campaignId")
+  id             Int         @id @default(autoincrement())
+  userCreatorId  Int
+  creator        User        @relation("UserCreatorCampaign", fields: [userCreatorId], references: [id])
+  sellerId       Int?
+  assignedSeller User?       @relation("sellerCampaigns", fields: [sellerId], references: [id])
+  name           String?
+  status         Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  prospects      Prospects[] @relation("campaignId")
 }
 
 model Prospects {
-  id            Int       @id @default(autoincrement())
+  id            Int        @id @default(autoincrement())
   userCreatorId Int
-  creator       User      @relation("UserCreatorProspects", fields: [userCreatorId], references: [id])
+  creator       User       @relation("UserCreatorProspects", fields: [userCreatorId], references: [id])
   names         String?
   lastNames     String?
-  sellerId      Int?
-  seller        User?     @relation("sellerProspects", fields: [sellerId], references: [id])
   phone         String?
   email         String?
-  campaignId    Int       @default(1)
-  campaign      Campaigns @relation("campaignId", fields: [campaignId], references: [id])
   address       String?
   city          String?
   state         String?
   zipCode       String?
   origin        String?
-  status        Boolean   @default(true)
-  isContacted   Boolean   @default(false)
+  campaignId    Int?       @default(1)
+  campaign      Campaigns? @relation("campaignId", fields: [campaignId], references: [id])
+  baseId        Int?
+  sellerId      Int?
+  seller        User?      @relation("sellerProspects", fields: [sellerId], references: [id])
+  status        Boolean    @default(true)
+  originType    String     @default("CAMPAIGN") // "BASE", "CAMPAIGN", "MANUAL"
+  isContacted   Boolean    @default(false)
   contactedAt   DateTime?
-  isSale        Boolean   @default(false)
+  meetingDate   DateTime?
+  isSale        Boolean    @default(false)
   soldAt        DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  importId      Int?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  history          ProspectHistory[]
+  prospectImport   ProspectImport?   @relation(fields: [prospectImportId], references: [id])
+  prospectImportId Int?
 }
 
 model BaseProspects {
@@ -217,9 +230,31 @@ model Notifications {
   title     String
   content   String
   type      String
-  userId    Int? // Quién generó la acción
+  userId    Int?
   user      User?    @relation("notificationCreator", fields: [userId], references: [id])
   metadata  Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model ProspectHistory {
+  id         Int       @id @default(autoincrement())
+  prospectId Int
+  prospect   Prospects @relation(fields: [prospectId], references: [id])
+  userId     Int? // Quién hizo el cambio (null si es sistema)
+  user       User?     @relation(fields: [userId], references: [id])
+  action     String // "CREACIÓN", "ASIGNACIÓN", "CONTACTADO", "VENTA", "EDICIÓN"
+  details    String?
+  createdAt  DateTime  @default(now())
+}
+
+model ProspectImport {
+  id            Int      @id @default(autoincrement())
+  filename      String
+  description   String?
+  userCreatorId Int
+  creator       User     @relation(fields: [userCreatorId], references: [id])
+  createdAt     DateTime @default(now())
+
+  prospects Prospects[]
 }

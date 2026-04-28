@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
@@ -15,10 +15,14 @@ export class AuthService {
 
   async login(user: string, password: string, ip: string, device: string) {
     const userResponse = await this.usersService.findByUser(user);
-    if (!userResponse) throw new Error('Usuario no encontrado');
+    if (!userResponse) throw new UnauthorizedException('Usuario no encontrado');
 
     const isMatch = await bcrypt.compare(password, userResponse.password);
-    if (!isMatch) throw new Error('Contraseña incorrecta');
+    if (!isMatch) throw new UnauthorizedException('Contraseña incorrecta');
+
+    if (userResponse.status === false) {
+      throw new UnauthorizedException('Tu cuenta está desactivada. Contacta al administrador.');
+    }
 
     await this.prisma.logSesion.create({
       data: {

@@ -29,7 +29,7 @@ export class CampaignController {
         @UploadedFile() file: Express.Multer.File,
         @Req() req: RequestWithUser
     ) {
-        return this.campaignService.processExcel(id, file, req.user.userId);
+        return this.campaignService.processExcel(id, file, req.user.userId, 'CAMPAIGN');
     }
 
     @Get()
@@ -55,8 +55,11 @@ export class CampaignController {
     @Patch(':id/assign-seller')
     async assignToSeller(
         @Param('id', ParseIntPipe) campaignId: number,
-        @Body('sellerId', ParseIntPipe) sellerId: number
+        @Body('sellerId') sellerId: number | null,
+        @Req() req: RequestWithUser
     ) {
-        return this.campaignService.assignCampaignToSeller(campaignId, sellerId);
+        const parsedSellerId = sellerId !== null ? Number(sellerId) : null;
+
+        return this.campaignService.assignCampaignToSeller(campaignId, parsedSellerId, req.user.userId);
     }
 }

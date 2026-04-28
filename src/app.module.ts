@@ -6,6 +6,7 @@ import { ProductsModule } from './products/products.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { ProspectsModule } from './prospects/prospects.module';
+import { RegisterSalesModule } from './register-sales/register-sales.module';
 
 @Module({
   imports: [
@@ -15,7 +16,8 @@ import { ProspectsModule } from './prospects/prospects.module';
     ProductsModule,
     NotificationsModule,
     CampaignModule,
-    ProspectsModule
+    ProspectsModule,
+    RegisterSalesModule
   ],
 })
 

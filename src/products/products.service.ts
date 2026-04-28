@@ -18,20 +18,24 @@ export class ProductsService {
   }
 
   async createProduct(data: CreateProductDto, creatorId: number) {
-    return this.prisma.products.create({
+    const product = await this.prisma.products.create({
       data: {
         ...data,
         userCreatorId: creatorId,
       },
     });
+
+    this.eventsGateway.server.emit('update_products');
+
+    return product;
   }
 
   async updateProduct(id: number, data: UpdateProductDto, actorId: number) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const product = await tx.products.findUnique({ where: { id } });
       if (!product) throw new NotFoundException('Producto no encontrado');
 
-      const updatedProduct = await tx.products.update({
+      const updated = await tx.products.update({
         where: { id },
         data,
       });
@@ -44,8 +48,12 @@ export class ProductsService {
         },
       });
 
-      return updatedProduct;
+      return updated;
     });
+
+    this.eventsGateway.server.emit('update_products');
+
+    return result;
   }
 
   async updateStock(id: number, quantity: number, userId: number) {
@@ -53,6 +61,8 @@ export class ProductsService {
       where: { id },
       data: { stock: quantity }
     });
+
+    this.eventsGateway.server.emit('update_products');
 
     if (product.stock < 5) {
       const title = "Alerta de Inventario";
@@ -115,6 +125,8 @@ export class ProductsService {
         }
       });
 
+      this.eventsGateway.server.emit('update_products');
+      
       const title = "Alerta de Inventario";
       const content = `Cambió estado de ${product.sku} a ${updatedProduct.status ? 'Activo' : 'Inactivo'}`;
 

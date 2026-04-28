@@ -21,16 +21,34 @@ export class CampaignService {
   }
 
   async findAll(userId: number) {
+    const requester = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    const where: any = {};
+
+    if (!requester) {
+      throw new Error('Sin Bases');
+    }
+
+    if (requester.role !== 'ADMIN') {
+      where.AND = [
+        {
+          OR: [
+            { userCreatorId: userId }
+          ]
+        }
+      ];
+    }
+
     return this.prisma.campaigns.findMany({
-      where: {
-        userCreatorId: userId,
-      },
+      where,
       include: {
+        creator: { select: { name: true } },
+        assignedSeller: { select: { name: true, user: true } },
         _count: {
           select: { prospects: true },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
   }
 
@@ -52,13 +70,32 @@ export class CampaignService {
 
   async toggleStatus(id: number) {
     const campaign = await this.findOne(id);
-    return this.prisma.campaigns.update({
-      where: { id },
-      data: { status: !campaign.status },
+
+    if (!campaign) {
+      throw new Error('Sin campaign');
+    }
+
+    const newStatus = !campaign.status;
+
+    this.eventsGateway.server.emit('update_prospects', {
+      campaignId: id
     });
+
+    return this.prisma.$transaction([
+      this.prisma.campaigns.update({
+        where: { id },
+        data: { status: newStatus },
+      }),
+
+      this.prisma.prospects.updateMany({
+        where: { campaignId: id },
+        data: { status: newStatus },
+      }),
+    ]);
+
   }
 
-  async processExcel(campaignId: number, file: Express.Multer.File, userId: number) {
+  async processExcel(campaignId: number, file: Express.Multer.File, userId: number, type: 'BASE' | 'CAMPAIGN') {
     if (!file) throw new BadRequestException('Archivo no proporcionado');
 
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
@@ -70,13 +107,25 @@ export class CampaignService {
 
     return this.prisma.$transaction(async (tx) => {
 
+      const prospectImport = await tx.prospectImport.create({
+        data: {
+          filename: file.originalname,
+          description: `Carga masiva realizada por ${userId}`,
+          userCreatorId: userId,
+        }
+      });
+
       const prospectsData = data.map((item: any) => ({
         userCreatorId: userId,
         names: String(item.Nombre || item.names || item.name || 'Sin nombre'),
         lastNames: String(item.Apellido || item.lastNames || ''),
         phone: String(item.Telefono || item.phone || ''),
-        campaignId: campaignId,
-        status: true
+        importId: prospectImport.id,
+        campaignId: campaignId || 0,
+        originType: type,
+        status: true,
+        isContacted: false,
+        isSale: false
       }));
 
       const createdProspects = await tx.prospects.createMany({
@@ -115,10 +164,51 @@ export class CampaignService {
     });
   }
 
-  async assignCampaignToSeller(campaignId: number, sellerId: number) {
-    return this.prisma.prospects.updateMany({
-      where: { campaignId: campaignId },
-      data: { sellerId: sellerId }
+  async assignCampaignToSeller(campaignId: number, sellerId: number | null, adminId: number) {
+    const campaign = await this.prisma.campaigns.findUnique({
+      where: { id: campaignId }
     });
+
+    if (!campaign) throw new Error('Campaña no encontrada');
+
+    const accion = sellerId ? `Asignada a vendedor ID: ${sellerId}` : 'Desasignada (Puesta en espera)';
+    const title = "Gestión de Base";
+    const content = `La campaña "${campaign.name}" ha sido ${sellerId ? 'asignada' : 'liberada'}.`;
+
+    const result = await this.prisma.$transaction([
+
+      this.prisma.prospects.updateMany({
+        where: { campaignId },
+        data: { sellerId }
+      }),
+
+      this.prisma.campaigns.update({
+        where: { id: campaignId },
+        data: { sellerId }
+      }),
+
+      this.prisma.notifications.create({
+        data: {
+          title,
+          content,
+          type: 'GENERAL',
+          userId: adminId,
+          metadata: { campaignId, sellerId }
+        }
+      })
+    ]);
+
+    this.eventsGateway.server.emit('activity', {
+      user: "Sistema",
+      change: `Campaña ${campaign.name}: ${accion}`,
+      date: new Date()
+    });
+
+    this.eventsGateway.server.emit('update_prospects', {
+      targetSellerId: sellerId,
+      campaignId: campaignId
+    });
+
+    return result;
   }
 }

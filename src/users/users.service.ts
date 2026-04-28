@@ -150,10 +150,10 @@ export class UsersService {
     };
   }
 
-  async toggleStatus(id: number, userId: number) {
-    return this.prisma.$transaction(async (tx) => {
+  async toggleStatus(id: number, adminId: number) {
+    const result = await this.prisma.$transaction(async (tx) => {
       const userResponse = await tx.user.findUnique({ where: { id } });
-      if (!userResponse) throw new NotFoundException('User no encontrado');
+      if (!userResponse) throw new NotFoundException('Usuario no encontrado');
 
       const updatedUser = await tx.user.update({
         where: { id },
@@ -163,31 +163,37 @@ export class UsersService {
       await tx.registerChanceUser.create({
         data: {
           userId: id,
-          userCreatorId: userId,
-          change: `Status: ${updatedUser.status ? 'Activo' : 'Inactivo'} -> ${updatedUser.status ? 'Activo' : 'Inactivo'}`,
+          userCreatorId: adminId,
+          change: `Status: ${userResponse.status ? 'Activo' : 'Inactivo'} -> ${updatedUser.status ? 'Activo' : 'Inactivo'}`,
         },
       });
 
-      this.eventsGateway.server.emit('activity', {
-        user: "Sistema",
-        change: `Cambió estado de ${userResponse.name} a ${updatedUser.status ? 'Activo' : 'Inactivo'}`,
-        date: new Date()
-      });
-
-      const title = "Alerta de Cambio";
-      const content = `Cambió estado de ${userResponse.name} a ${updatedUser.status ? 'Activo' : 'Inactivo'}`;
-
       await tx.notifications.create({
         data: {
-          title,
-          content,
+          title: "Alerta de Cambio de Cuenta",
+          content: `El usuario ${userResponse.name} ahora está ${updatedUser.status ? 'Activo' : 'Inactivo'}`,
           type: 'GENERAL',
-          userId,
-          metadata: { sku: userResponse.name, status: updatedUser.status }
+          userId: adminId,
+          metadata: { targetUserId: id, status: updatedUser.status }
         }
       });
+
       return updatedUser;
     });
+
+    this.eventsGateway.server.emit('activity', {
+      user: "Sistema",
+      change: `Estado de ${result.name} cambiado a ${result.status ? 'Activo' : 'Inactivo'}`,
+      date: new Date()
+    });
+
+    if (result.status === false) {
+      this.eventsGateway.server.emit('forced_logout', {
+        targetUserId: result.id
+      });
+    }
+
+    return result;
   }
 
 };

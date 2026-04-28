@@ -9,20 +9,29 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+ app.enableCors({
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://np-products-frontend-xi.vercel.app',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean);
 
-  app.enableCors({
-    origin: frontendUrl,
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    allowedHeaders: 'Content-Type,Authorization',
-  });
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  allowedHeaders: 'Content-Type,Authorization',
+});
 
   const port = process.env.PORT || 3000;
-  
+
   await app.listen(port);
-  
+
   logger.log(`🚀 Servidor corriendo en: http://localhost:${port}/api`);
-  logger.log(`✅ CORS habilitado para: ${frontendUrl}`);
 }
 bootstrap();
