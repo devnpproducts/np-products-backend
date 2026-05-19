@@ -1,8 +1,10 @@
 import {
   Controller, Get, Post, Put, Patch, Delete,
-  Body, Param, Query, Req, UseGuards, ParseIntPipe
+  Body, Param, Query, Req, UseGuards, ParseIntPipe, UploadedFile, UseInterceptors
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
+
 import { ProspectsService } from './prospects.service';
 import { CreateProspectDto, UpdateProspectDto } from './dto/prospect.dto';
 
@@ -48,6 +50,19 @@ export class ProspectsController {
   @Patch(':id/sale')
   markSale(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
     return this.prospectsService.markAsSale(id, req.user.userId);
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadProspects(
+    @Body('type') type: string,
+    @Body('campaignId') campaignId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: RequestWithUser
+  ) {
+    const parsedCampaignId = campaignId && campaignId !== 'undefined' ? parseInt(campaignId, 10) : null;
+
+    return this.prospectsService.processExcel(parsedCampaignId, file, req.user.userId, type);
   }
 
   @Delete(':id')

@@ -10,7 +10,7 @@ interface RequestWithUser extends Request {
   };
 }
 
-@Controller('sales')
+@Controller('register-sales')
 @UseGuards(AuthGuard('jwt'))
 export class RegisterSalesController {
   constructor(private readonly salesService: RegisterSalesService) { }

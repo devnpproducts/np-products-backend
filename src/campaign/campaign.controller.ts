@@ -1,6 +1,5 @@
-import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, Req, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, ParseIntPipe, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { FileInterceptor } from '@nestjs/platform-express';
 
 import { CampaignService } from './campaign.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
@@ -20,16 +19,6 @@ export class CampaignController {
     @Post('create')
     create(@Body() createDto: CreateCampaignDto, @Req() req: RequestWithUser) {
         return this.campaignService.create(createDto, req.user.userId);
-    }
-
-    @Post(':id/upload')
-    @UseInterceptors(FileInterceptor('file'))
-    async uploadProspects(
-        @Param('id', ParseIntPipe) id: number,
-        @UploadedFile() file: Express.Multer.File,
-        @Req() req: RequestWithUser
-    ) {
-        return this.campaignService.processExcel(id, file, req.user.userId, 'CAMPAIGN');
     }
 
     @Get()

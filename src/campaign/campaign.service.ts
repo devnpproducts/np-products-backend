@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import * as XLSX from 'xlsx';
 
 import { PrismaService } from '../database/prisma.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
@@ -93,75 +92,6 @@ export class CampaignService {
       }),
     ]);
 
-  }
-
-  async processExcel(campaignId: number, file: Express.Multer.File, userId: number, type: 'BASE' | 'CAMPAIGN') {
-    if (!file) throw new BadRequestException('Archivo no proporcionado');
-
-    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(sheet);
-
-    if (data.length === 0) throw new BadRequestException('El archivo está vacío');
-
-    return this.prisma.$transaction(async (tx) => {
-
-      const prospectImport = await tx.prospectImport.create({
-        data: {
-          filename: file.originalname,
-          description: `Carga masiva realizada por ${userId}`,
-          userCreatorId: userId,
-        }
-      });
-
-      const prospectsData = data.map((item: any) => ({
-        userCreatorId: userId,
-        names: String(item.Nombre || item.names || item.name || 'Sin nombre'),
-        lastNames: String(item.Apellido || item.lastNames || ''),
-        phone: String(item.Telefono || item.phone || ''),
-        importId: prospectImport.id,
-        campaignId: campaignId || 0,
-        originType: type,
-        status: true,
-        isContacted: false,
-        isSale: false
-      }));
-
-      const createdProspects = await tx.prospects.createMany({
-        data: prospectsData,
-        skipDuplicates: true,
-      });
-
-      await tx.registerChanceUser.create({
-        data: {
-          userId: userId,
-          userCreatorId: userId,
-          change: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
-        },
-      });
-
-      this.eventsGateway.server.emit('activity', {
-        user: "Sistema",
-        change: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
-        date: new Date()
-      });
-
-      await tx.notifications.create({
-        data: {
-          title: "Alerta de Carga",
-          content: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
-          type: 'GENERAL',
-          userId: userId,
-          metadata: { sku: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}` }
-        }
-      });
-
-      return {
-        message: 'Carga completada con éxito',
-        count: createdProspects.count,
-      };
-    });
   }
 
   async assignCampaignToSeller(campaignId: number, sellerId: number | null, adminId: number) {

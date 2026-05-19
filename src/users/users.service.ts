@@ -38,7 +38,7 @@ export class UsersService {
     });
   }
 
-  async getUsers(userId: number) {
+async getUsers(userId: number) {
     const requester = await this.prisma.user.findUnique({ where: { id: userId } });
 
     if (!requester) {
@@ -47,23 +47,29 @@ export class UsersService {
 
     let users = [];
 
+    const includeQuery = {
+      manager: { select: { name: true } }
+    };
+
     if (requester.role === 'ADMIN') {
-      users = await this.prisma.user.findMany();
-
+      users = await this.prisma.user.findMany({
+        include: includeQuery
+      });
     } else {
-
       users = await this.prisma.user.findMany({
         where: {
           OR: [
             { id: userId },
             { managerId: userId }
           ]
-        }
+        },
+        include: includeQuery
       });
     }
 
     return users.map(user => ({
       ...user,
+      managerName: user.manager?.name || 'Sin Asignar',
       passwordView: user.passwordView ? decrypt(user.passwordView) : null
     }));
   }
