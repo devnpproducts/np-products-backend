@@ -27,6 +27,10 @@ export class CreateRegisterSaleDto {
   @IsString()
   zipCode!: string;
 
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
+
   // Datos de la Venta
   @IsNumber()
   grossAmount!: number;

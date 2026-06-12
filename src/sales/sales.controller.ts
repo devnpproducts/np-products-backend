@@ -1,25 +1,55 @@
 // sales.controller.ts
-import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put } from '@nestjs/common';
-import { SalesService } from './sales.service';
-import { CreateSaleDto, UpdateSaleDto } from './dto/sales.dto';
+import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { v2 as cloudinary } from 'cloudinary';
+
+import { SalesService } from './sales.service';
+import { CreateSaleDto, UpdateSaleDto, BulkCreateSaleDto } from './dto/sales.dto';
 
 interface RequestWithUser extends Request {
   user: { userId: number };
 }
 
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 @Controller('sales')
 @UseGuards(AuthGuard('jwt'))
 export class SalesController {
   constructor(private readonly salesService: SalesService) { }
 
-  @Post('register')
+@Post('register')
   async create(
-    @Body() dto: CreateSaleDto,
-    @Req() req: RequestWithUser
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateSaleDto & { receiptImageBase64?: string }
   ) {
-    return this.salesService.registerSale(dto, req.user.userId);
+    
+    let receiptUrl = null;
+
+    if (dto.receiptImageBase64) {
+      try {
+        const cloudResult = await cloudinary.uploader.upload(dto.receiptImageBase64, {
+          folder: 'ventas_comprobantes'
+        });
+        receiptUrl = cloudResult.secure_url; 
+      } catch (error) {
+        console.error("Error subiendo a Cloudinary:", error);
+        throw new BadRequestException('Hubo un problema al subir el comprobante de pago.');
+      }
+    }
+
+    return this.salesService.registerSale(dto, req.user.userId, receiptUrl);
+  }
+
+  @Post('bulk-register')
+  async bulkCreate(
+    @Req() req: RequestWithUser,
+    @Body() bulkDto: BulkCreateSaleDto
+  ) {
+    return this.salesService.registerBulkSales(bulkDto.sales, req.user.userId);
   }
 
   @Get()

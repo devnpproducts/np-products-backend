@@ -19,8 +19,8 @@ export class SaleProductDto {
 
 export class CreateSaleDto {
   @IsNumber()
-  @IsNotEmpty()
-  prospectId!: number;
+  @IsOptional()
+  prospectId?: number;
 
   @IsString()
   @IsNotEmpty()
@@ -67,6 +67,10 @@ export class CreateSaleDto {
   @IsNumber()
   @IsOptional()
   paymentInstallments?: number;
+
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
 
   @IsString()
   @IsOptional()
@@ -147,6 +151,10 @@ export class UpdateSaleDto {
   @IsOptional()
   comments?: string;
 
+  @IsOptional()
+  @IsString()
+  receiptUrl?: string;
+
   @IsString()
   @IsOptional()
   cardHolder?: string;
@@ -192,4 +200,11 @@ export class UpdateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SaleProductDto)
   products?: SaleProductDto[];
+}
+
+export class BulkCreateSaleDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateSaleDto)
+  sales!: CreateSaleDto[];
 }

@@ -72,11 +72,11 @@ export class InvoiceGeneratorService {
                 y += 10;
                 doc.moveTo(350, y).lineTo(550, y).stroke('#000000');
 
-                doc.font('Helvetica-Bold').text(`MONTO NETO: $${(saleData.grossAmount || 0).toFixed(2)}`, 450, y + 10, { align: 'right' });
+                doc.font('Helvetica-Bold').text(`MONTO BRUTO: $${(saleData.grossAmount || 0).toFixed(2)}`, 450, y + 10, { align: 'right' });
 
                 doc.font('Helvetica-Bold').text(`IMPUESTO: $${(saleData.tax || 0).toFixed(2)}`, 450, y + 25, { align: 'right' });
 
-                doc.font('Helvetica-Bold').text(`MONTO BRUTO: $${(saleData.netAmount || 0).toFixed(2)}`, 450, y + 40, { align: 'right' });
+                doc.font('Helvetica-Bold').text(`MONTO NETO: $${(saleData.netAmount || 0).toFixed(2)}`, 450, y + 40, { align: 'right' });
 
                 doc.end();
             } catch (error) {

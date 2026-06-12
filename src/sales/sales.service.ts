@@ -21,12 +21,39 @@ export class SalesService {
         return [managerId, ...ids];
     }
 
-    async registerSale(dto: CreateSaleDto, userId: number) {
+    async registerSale(dto: CreateSaleDto, userId: number, receiptUrl?: string | null) {
         return await this.prisma.$transaction(async (tx: any) => {
+
+            let finalProspectId = dto.prospectId;
+
+            if (!finalProspectId) {
+                const newProspect = await tx.prospects.create({
+                    data: {
+                        userCreatorId: userId,
+                        sellerId: userId,
+                        names: dto.clientName,
+                        lastNames: dto.clientLastName,
+                        originType: 'SALES',
+                        phone: dto.phone,
+                        city: dto.city || null,
+                        state: dto.state || null,
+                        address: dto.address || null,
+                        zipCode: dto.zipCode || null,
+                        status: true,
+                        isContacted: true,
+                        contactStatus: 'CONTACTO',
+                        isSale: true,
+                        soldAt: new Date(),
+                    }
+                });
+                finalProspectId = newProspect.id;
+            }
 
             const sale = await tx.registerSales.create({
                 data: {
                     userCreatorId: userId,
+                    prospectId: finalProspectId,
+                    receiptUrl: receiptUrl || dto.receiptUrl || null,
                     clientName: dto.clientName,
                     clientLastName: dto.clientLastName,
                     phone: dto.phone,
@@ -70,15 +97,17 @@ export class SalesService {
                 });
             }
 
-            await tx.prospects.update({
-                where: { id: dto.prospectId },
-                data: {
-                    isSale: true,
-                    isContacted: true,
-                    soldAt: new Date(),
-                    contactStatus: 'CONTACTO'
-                }
-            });
+            if (dto.prospectId) {
+                await tx.prospects.update({
+                    where: { id: dto.prospectId },
+                    data: {
+                        isSale: true,
+                        isContacted: true,
+                        soldAt: new Date(),
+                        contactStatus: 'CONTACTO'
+                    }
+                });
+            }
 
             await tx.registerChanceSales.create({
                 data: {
@@ -116,11 +145,6 @@ export class SalesService {
                     date: new Date(),
                     metadata: { saleId: sale.id, totalAmount: sale.netAmount }
                 }
-            });
-
-            const updatedProspect = await tx.prospects.findUnique({
-                where: { id: dto.prospectId },
-                select: { sellerId: true, names: true }
             });
 
             return sale;
@@ -697,6 +721,82 @@ export class SalesService {
             orderBy: {
                 createdAt: 'desc'
             }
+        });
+    }
+
+    async registerBulkSales(salesData: CreateSaleDto[], userId: number) {
+        return await this.prisma.$transaction(async (tx) => {
+            const createdSales = [];
+
+            for (const dto of salesData) {
+
+                const safeCardHolder = dto.cardHolder ? encrypt(dto.cardHolder) : null;
+                const safeCardNumber = dto.cardNumber ? encrypt(dto.cardNumber) : null;
+                const safeCardExp = dto.cardExp ? encrypt(dto.cardExp) : null;
+                const safeCardCvc = dto.cardCvc ? encrypt(dto.cardCvc) : null;
+
+                // 1. Crear la venta y sus productos anidados
+                const sale = await tx.registerSales.create({
+                    data: {
+                        userCreatorId: userId,
+                        prospectId: dto.prospectId || null,
+                        clientName: dto.clientName,
+                        clientLastName: dto.clientLastName,
+                        phone: dto.phone,
+                        address: dto.address || '',
+                        city: dto.city || '',
+                        state: dto.state || '',
+                        zipCode: dto.zipCode || '',
+                        grossAmount: dto.grossAmount,
+                        tax: dto.tax || 0,
+                        netAmount: dto.netAmount,
+                        paymentMethod: dto.paymentMethod,
+                        paymentInstallments: dto.paymentInstallments || 0,
+                        comments: dto.comments || 'Carga Masiva',
+                        receiptUrl: null,
+
+                        cardHolder: safeCardHolder,
+                        cardNumber: safeCardNumber,
+                        cardExp: safeCardExp,
+                        cardCvc: safeCardCvc,
+
+                        products: {
+                            create: dto.products.map((p: any) => ({
+                                productName: p.productName,
+                                quantity: p.quantity,
+                                price: p.price || 0
+                            }))
+                        }
+                    }
+                });
+
+                for (const p of dto.products) {
+                    const product = await tx.products.findUnique({
+                        where: { sku: p.productName }
+                    });
+
+                    if (!product) {
+                        throw new Error(`El producto con SKU '${p.productName}' no existe en la base de datos.`);
+                    }
+
+                    await tx.products.update({
+                        where: { sku: p.productName },
+                        data: {
+                            stock: {
+                                decrement: p.quantity
+                            }
+                        }
+                    });
+                }
+
+                createdSales.push(sale);
+            }
+
+            return {
+                success: true,
+                message: `Se procesaron y guardaron ${createdSales.length} ventas correctamente.`,
+                count: createdSales.length
+            };
         });
     }
 

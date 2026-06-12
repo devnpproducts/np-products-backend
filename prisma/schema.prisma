@@ -29,6 +29,7 @@ model User {
   passwordView String?
   status       Boolean  @default(true)
   managerId    Int?     @default(1)
+  permissions  Json? // ["CAN_BULK_UPLOAD", "CAN_EXPORT"]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -96,13 +97,14 @@ model RegisterSales {
   city           String
   state          String
   zipCode        String
+  receiptUrl     String?
 
   // Datos de la Venta
   purchaseDate        DateTime @default(now())
   grossAmount         Float // Monto Bruto
   tax                 Float    @default(0.0)
   netAmount           Float // Monto Neto
-  paymentMethod       String 
+  paymentMethod       String
   comments            String?  @db.Text
   paymentInstallments Int      @default(0)
 
@@ -141,7 +143,7 @@ model Products {
   id            Int      @id @default(autoincrement())
   userCreatorId Int
   creator       User     @relation("UserCreatorProducts", fields: [userCreatorId], references: [id])
-  sku           String
+  sku           String @unique
   stock         Int
   price         Float?
   status        Boolean
