@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsInt, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsInt, IsBoolean, IsDateString } from 'class-validator';
 
 export class CreateProspectDto {
   @IsString()
@@ -23,8 +23,10 @@ export class CreateProspectDto {
   @IsString()
   @IsOptional()
   origin?: string;
-  
-  // campos opcionales como city, address.
+
+  @IsDateString()
+  @IsOptional()
+  createdAt?: string;
 }
 
 export class UpdateProspectDto extends CreateProspectDto {

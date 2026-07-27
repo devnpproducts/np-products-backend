@@ -1,40 +1,40 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { CreateCommentDto, UpdateCommentDto } from './dto/comments.dto';
+import { CreateCommentContactsDto, UpdateCommentContactsDto } from './dto/commentsContacts.dto';
 
 @Injectable()
-export class CommentsService {
+export class CommentsContactsService {
   constructor(private prisma: PrismaService) { }
 
-  async create(prospectId: number, comment: string, userId: number) {
-    const prospect = await this.prisma.prospects.findUnique({
-      where: { id: prospectId },
+  async create(ContactId: number, comment: string, userId: number) {
+    const contact = await this.prisma.contacts.findUnique({
+      where: { id: ContactId },
       select: { phone: true }
     });
 
-    if (!prospect || !prospect.phone) {
-      throw new NotFoundException('Prospecto sin teléfono válido');
+    if (!contact || !contact.phone) {
+      throw new NotFoundException('Contacto sin teléfono válido');
     }
 
     const client = await this.prisma.clients.findUnique({
-      where: { phone: prospect.phone }
+      where: { phone: contact.phone }
     });
 
     if (!client) {
       throw new NotFoundException('No se encontró el cliente maestro para vincular el comentario');
     }
 
-    return this.prisma.commentsProspects.create({
+    return this.prisma.commentsContacts.create({
       data: {
         comment: comment,
         userCreatorId: userId,
-        prospectsId: prospectId,
+        ContactId: ContactId,
         clientsId: client.id
       }
     });
   }
 
-  async findAllByProspect(prospectId: number, userId: number) {
+  async findAllByContact(contactId: number, userId: number) {
     const requester = await this.prisma.user.findUnique({ where: { id: userId } });
 
     if (!requester) {
@@ -42,17 +42,17 @@ export class CommentsService {
     }
 
     const where: any = {
-      prospectsId: prospectId,
+      ContactId: contactId,
       status: true
     };
 
-    const rolesConAccesoTotal = ['ADMIN', 'SUPERVISOR', 'DESPACHO', 'SEGUIMIENTO'];
+    const rolesConAccesoTotal = ['ADMIN', 'SUPERVISOR', 'DESPACHO'];
 
     if (!requester.role || !rolesConAccesoTotal.includes(requester.role)) {
       where.userCreatorId = requester.id;
     }
 
-    return await this.prisma.commentsProspects.findMany({
+    return await this.prisma.commentsContacts.findMany({
       where,
       include: {
         creator: { select: { name: true } }
@@ -61,21 +61,21 @@ export class CommentsService {
     });
   }
 
-  async update(id: number, data: UpdateCommentDto) {
-    const exists = await this.prisma.commentsProspects.findUnique({ where: { id } });
+  async update(id: number, data: UpdateCommentContactsDto) {
+    const exists = await this.prisma.commentsContacts.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Comentario no encontrado');
 
-    return await this.prisma.commentsProspects.update({
+    return await this.prisma.commentsContacts.update({
       where: { id },
       data: { comment: data.comment }
     });
   }
 
   async remove(id: number) {
-    const exists = await this.prisma.commentsProspects.findUnique({ where: { id } });
+    const exists = await this.prisma.commentsContacts.findUnique({ where: { id } });
     if (!exists) throw new NotFoundException('Comentario no encontrado');
 
-    return await this.prisma.commentsProspects.update({
+    return await this.prisma.commentsContacts.update({
       where: { id },
       data: { status: false }
     });

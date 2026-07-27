@@ -66,6 +66,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`📡 Evento 'update_prospects' enviado a salas correspondientes`);
   }
 
+  emitContactUpdate(sellerId: number | null, payload: any) {
+    const cleanPayload = JSON.parse(JSON.stringify(payload));
+
+    this.server.to('room_management').emit('update_contacts', cleanPayload);
+
+    if (sellerId) {
+      this.server.to(`room_user_${sellerId}`).emit('update_contacts', cleanPayload);
+    }
+
+    console.log(`📡 Evento 'update_contacts' enviado a salas correspondientes`);
+  }
+
   notifyUser(userId: number, type: string, payload: any) {
     const cleanPayload = JSON.parse(JSON.stringify(payload));
     this.server.to(`room_user_${userId}`).emit('notification', {
@@ -81,6 +93,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (userId) {
       this.server.to(`room_user_${userId}`).emit('prospect_updated', cleanPayload);
+    }
+  }
+
+   ContactUpdateNotification(userId: number | null, payload: any) {
+    const cleanPayload = JSON.parse(JSON.stringify(payload));
+    this.server.to('room_management').emit('contact_updated', cleanPayload);
+
+    if (userId) {
+      this.server.to(`room_user_${userId}`).emit('contact_updated', cleanPayload);
     }
   }
 

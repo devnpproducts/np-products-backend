@@ -13,10 +13,22 @@ datasource db {
 }
 
 enum ContactStatus {
+  // Nuevos valores
+  INGRESADO
+  LLAMADA
+  NUNCA_CONTESTA
+  NO_CONTESTA
+  VENTA
+  NO_PASO_PENDIENTE
+  CITA
+  AGENDADO
+  NO_VENTA
+  NO_LLAMAR
+
+  // Valores antiguos
   SIN_TRABAJO
   NO_CONTACTO
   CONTACTO
-  AGENDADO
 }
 
 model User {
@@ -53,6 +65,10 @@ model User {
   prospectHistories        ProspectHistory[]
   prospectImports          ProspectImport[]
   commentsProspects        CommentsProspects[]
+  contactsUserCreator      Contacts[]               @relation("UserCreatorContacts")
+  contactsUserSeller       Contacts[]               @relation("sellerContacts")
+  contactsHistories        ContactsHistory[]
+  commentsContacts         CommentsContacts[]
 }
 
 model RegisterChanceUser {
@@ -84,11 +100,11 @@ model RegisterChanceSales {
 }
 
 model RegisterSales {
-  id             Int        @id @default(autoincrement())
+  id             Int       @id @default(autoincrement())
   userCreatorId  Int
-  creator        User       @relation("UserCreatorSale", fields: [userCreatorId], references: [id])
-  prospectId     Int?       @unique // @unique si un prospecto solo puede generar UNA venta
-  prospect       Prospects? @relation("ProspectToSale", fields: [prospectId], references: [id])
+  creator        User      @relation("UserCreatorSale", fields: [userCreatorId], references: [id])
+  contactId      Int?      @unique
+  contact        Contacts? @relation("ContactToSale", fields: [contactId], references: [id])
   // Datos del Cliente
   clientName     String
   clientLastName String
@@ -117,7 +133,7 @@ model RegisterSales {
   // Datos de Envío
   trackingNumber String?
   trackingLink   String?
-  packageStatus  String?   @default("PENDIENTE")
+  packageStatus  String?   @default("INGRESADO")
   deliveryDate   DateTime?
   dispatchDate   DateTime?
 
@@ -143,7 +159,7 @@ model Products {
   id            Int      @id @default(autoincrement())
   userCreatorId Int
   creator       User     @relation("UserCreatorProducts", fields: [userCreatorId], references: [id])
-  sku           String @unique
+  sku           String   @unique
   stock         Int
   price         Float?
   status        Boolean
@@ -198,8 +214,49 @@ model Clients {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  prospects Prospects[]
-  comments  CommentsProspects[]
+  prospects        Prospects[]
+  comments         CommentsProspects[]
+  commentsContacts CommentsContacts[]
+}
+
+model Contacts {
+  id                  Int           @id @default(autoincrement())
+  userCreatorId       Int
+  creator             User          @relation("UserCreatorContacts", fields: [userCreatorId], references: [id])
+  names               String?
+  lastNames           String?
+  phone               String?
+  email               String?
+  address             String?
+  city                String?
+  state               String?
+  zipCode             String?
+  origin              String?
+  campaignId          Int?
+  sellerId            Int?
+  seller              User?         @relation("sellerContacts", fields: [sellerId], references: [id])
+  status              Boolean       @default(true)
+  originType          String        @default("CONTACT")
+  contactStatus       ContactStatus @default(LLAMADA)
+  paymentInstallments Int           @default(0)
+  I1                  Float?
+  I2                  Float?
+  I3                  Float?
+  I4                  Float?
+  I5                  Float?
+
+  isSale             Boolean   @default(false)
+  markSale             Boolean   @default(false)
+  autoCreated         Boolean       @default(false)
+  soldAt             DateTime?
+  originalProspectId Int?
+  prospect            Prospects?    @relation("ProspectContacts", fields: [originalProspectId], references: [id])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  sale              RegisterSales?     @relation("ContactToSale")
+  contactsHistories ContactsHistory[]
+  commentsContacts  CommentsContacts[]
 }
 
 model Prospects {
@@ -215,18 +272,19 @@ model Prospects {
   state         String?
   zipCode       String?
   origin        String?
-  campaignId    Int?          @default(1)
+  campaignId    Int?
   campaign      Campaigns?    @relation("campaignId", fields: [campaignId], references: [id])
   baseId        Int?
   sellerId      Int?
   seller        User?         @relation("sellerProspects", fields: [sellerId], references: [id])
   status        Boolean       @default(true)
   originType    String        @default("PROSPECT") // "BASE", "PROSPECT"
-  contactStatus ContactStatus @default(NO_CONTACTO)
+  contactStatus ContactStatus @default(LLAMADA)
   isContacted   Boolean       @default(false)
   contactedAt   DateTime?
   meetingDate   DateTime?
   isSale        Boolean       @default(false)
+  isDuplicate   Boolean       @default(false)
   soldAt        DateTime?
   importId      Int?
   createdAt     DateTime      @default(now())
@@ -239,7 +297,7 @@ model Prospects {
   commentsProspectsId Int?
   clients             Clients?            @relation(fields: [clientsId], references: [id])
   clientsId           Int?
-  sale                RegisterSales?      @relation("ProspectToSale")
+  contacts            Contacts[]          @relation("ProspectContacts")
 }
 
 model BaseProspects {
@@ -279,11 +337,22 @@ model ProspectHistory {
   id         Int       @id @default(autoincrement())
   prospectId Int
   prospect   Prospects @relation(fields: [prospectId], references: [id])
-  userId     Int? // Quién hizo el cambio (null si es sistema)
+  userId     Int?
   user       User?     @relation(fields: [userId], references: [id])
   action     String // "CREACIÓN", "ASIGNACIÓN", "CONTACTADO", "VENTA", "EDICIÓN"
   details    String?
   createdAt  DateTime  @default(now())
+}
+
+model ContactsHistory {
+  id        Int      @id @default(autoincrement())
+  contactId Int
+  contact   Contacts @relation(fields: [contactId], references: [id])
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String // "CREACIÓN", "ASIGNACIÓN", "CONTACTADO", "VENTA", "EDICIÓN"
+  details   String?
+  createdAt DateTime @default(now())
 }
 
 model ProspectImport {
@@ -308,4 +377,17 @@ model CommentsProspects {
   status           Boolean   @default(true)
   clients          Clients?  @relation(fields: [clientsId], references: [id])
   clientsId        Int?
+}
+
+model CommentsContacts {
+  id             Int      @id @default(autoincrement())
+  comment        String?
+  userCreatorId  Int
+  creator        User     @relation(fields: [userCreatorId], references: [id])
+  ContactId      Int
+  creatorContact Contacts @relation(fields: [ContactId], references: [id])
+  createdAt      DateTime @default(now())
+  status         Boolean  @default(true)
+  clients        Clients? @relation(fields: [clientsId], references: [id])
+  clientsId      Int?
 }

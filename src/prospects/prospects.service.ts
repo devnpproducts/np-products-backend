@@ -57,8 +57,16 @@ export class ProspectsService {
   }
 
   async create(data: CreateProspectDto, userId: number) {
+    const formattedCreatedAt = data.createdAt
+      ? new Date(data.createdAt).toISOString()
+      : new Date().toISOString();
+
     const prospect = await this.prisma.prospects.create({
-      data: { ...data, userCreatorId: userId },
+      data: {
+        ...data,
+        createdAt: formattedCreatedAt,
+        userCreatorId: userId
+      },
     });
 
     const phone = this.cleanPhone(data.phone);
@@ -72,7 +80,6 @@ export class ProspectsService {
 
     return prospect;
   }
-
   async findAll(type: 'precontact' | 'contact' | 'sale', userId: number) {
     const requester = await this.prisma.user.findUnique({ where: { id: userId } });
 
@@ -334,6 +341,21 @@ export class ProspectsService {
         }
       });
 
+      const allPhonesFromExcel = data.map((item: any) =>
+        this.cleanPhone(item.Telefono || item['Teléfono'] || item.phone || item.Phone)
+      ).filter(Boolean);
+
+      const existingProspects = await tx.prospects.findMany({
+        where: { phone: { in: allPhonesFromExcel } },
+        select: { phone: true }
+      });
+
+      const existingPhonesSet = new Set(existingProspects.map(p => p.phone));
+      const seenInExcel = new Set();
+
+      let duplicateCount = 0;
+      let newCount = 0;
+
       const prospectsData = data.map((item: any) => {
         // 1. Limpieza rigurosa de los campos obligatorios/críticos
         const phone = this.cleanPhone(item.Telefono || item['Teléfono'] || item.phone || item.Phone);
@@ -348,6 +370,15 @@ export class ProspectsService {
         const city = item.city || item.City || item.ciudad || item.Ciudad;
         const state = item.state || item.State || item.estado || item.Estado || item.departamento || item.Departamento;
         const zipCode = item.zipCode || item.ZipCode || item.zipcode || item.codigoPostal || item['Código Postal'];
+
+        let isDuplicate = false;
+        if (existingPhonesSet.has(phone) || seenInExcel.has(phone)) {
+          isDuplicate = true;
+          duplicateCount++;
+        } else {
+          if (phone) seenInExcel.add(phone);
+          newCount++;
+        }
 
         return {
           userCreatorId: userId,
@@ -366,6 +397,7 @@ export class ProspectsService {
           campaignId: campaignId || null,
           originType: type,
           status: true,
+          isDuplicate: isDuplicate
         };
       });
 
@@ -399,34 +431,37 @@ export class ProspectsService {
         }
       }
 
+      const summaryMessage = `Carga masiva: ${newCount} nuevos, ${duplicateCount} duplicados en campaña ID ${campaignId}`;
+
       await tx.registerChanceUser.create({
         data: {
           userId: userId,
           userCreatorId: userId,
-          change: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
+          change: summaryMessage,
         },
       });
 
       this.eventsGateway.server.emit('activity', {
         user: "Sistema",
-        change: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
+        change: summaryMessage,
         date: new Date()
       });
 
       await tx.notifications.create({
         data: {
-          title: "Alerta de Carga",
-          content: `Carga masiva: ${createdProspects.count} prospectos añadidos a la Base`,
-          //content: `Carga masiva: ${createdProspects.count} prospectos añadidos a la campaña ID ${campaignId}`,
+          title: duplicateCount > 0 ? "Carga con duplicados" : "Carga Exitosa",
+          content: summaryMessage,
           type: 'GENERAL',
           userId: userId,
-          metadata: { sku: `Carga masiva: ${createdProspects.count} prospectos añadidos a la Base` }
+          metadata: { sku: summaryMessage }
         }
       });
 
       return {
-        message: 'Carga completada con éxito',
-        count: createdProspects.count,
+        message: 'Carga completada',
+        totalProcessed: prospectsData.length,
+        newCount: newCount,
+        duplicateCount: duplicateCount
       };
     });
   }

@@ -24,10 +24,22 @@ export class SalesService {
     async registerSale(dto: CreateSaleDto, userId: number, receiptUrl?: string | null) {
         return await this.prisma.$transaction(async (tx: any) => {
 
-            let finalProspectId = dto.prospectId;
+            let finalContactId = null;
+            let isExistingContact = false;
 
-            if (!finalProspectId) {
-                const newProspect = await tx.prospects.create({
+            if (dto.contactId) {
+                const contactExists = await tx.Contacts.findUnique({
+                    where: { id: dto.contactId }
+                });
+
+                if (contactExists) {
+                    finalContactId = contactExists.id;
+                    isExistingContact = true;
+                }
+            }
+
+            if (!finalContactId) {
+                const newContact = await tx.Contacts.create({
                     data: {
                         userCreatorId: userId,
                         sellerId: userId,
@@ -40,19 +52,19 @@ export class SalesService {
                         address: dto.address || null,
                         zipCode: dto.zipCode || null,
                         status: true,
-                        isContacted: true,
-                        contactStatus: 'CONTACTO',
+                        contactStatus: 'VENTA',
                         isSale: true,
                         soldAt: new Date(),
+                        autoCreated: true
                     }
                 });
-                finalProspectId = newProspect.id;
+                finalContactId = newContact.id;
             }
 
             const sale = await tx.registerSales.create({
                 data: {
                     userCreatorId: userId,
-                    prospectId: finalProspectId,
+                    contactId: finalContactId,
                     receiptUrl: receiptUrl || dto.receiptUrl || null,
                     clientName: dto.clientName,
                     clientLastName: dto.clientLastName,
@@ -67,14 +79,13 @@ export class SalesService {
                     paymentMethod: dto.paymentMethod,
                     paymentInstallments: dto.paymentInstallments || 0,
                     comments: dto.comments,
-
                     cardHolder: dto.cardHolder ? encrypt(dto.cardHolder) : null,
                     cardNumber: dto.cardNumber ? encrypt(dto.cardNumber) : null,
                     cardExp: dto.cardExp ? encrypt(dto.cardExp) : null,
                     cardCvc: dto.cardCvc ? encrypt(dto.cardCvc) : null,
-
+                    purchaseDate: dto.purchaseDate,
                     products: {
-                        create: dto.products.map((p: any) => ({
+                        create: (dto.products || []).map((p: any) => ({
                             productName: p.productName,
                             quantity: p.quantity,
                             price: p.price
@@ -86,7 +97,7 @@ export class SalesService {
                 }
             });
 
-            for (const p of dto.products) {
+            for (const p of (dto.products || [])) {
                 await tx.products.updateMany({
                     where: { sku: p.productName },
                     data: {
@@ -97,17 +108,38 @@ export class SalesService {
                 });
             }
 
-            if (dto.prospectId) {
-                await tx.prospects.update({
-                    where: { id: dto.prospectId },
+            if (isExistingContact) {
+                await tx.Contacts.update({
+                    where: { id: finalContactId },
                     data: {
                         isSale: true,
-                        isContacted: true,
+                        markSale: true,
                         soldAt: new Date(),
-                        contactStatus: 'CONTACTO'
+                        contactStatus: 'VENTA'
                     }
                 });
             }
+
+            if (dto.contactId) {
+            const becameProspect = await tx.prospects.findFirst({
+                where: { 
+                    id: dto.contactId,
+                    originType: 'BASE' 
+                }
+            });
+
+            if (becameProspect) {
+                await tx.prospects.update({
+                    where: { id: becameProspect.id },
+                    data: {
+                        isSale: true,
+                        soldAt: new Date(),
+                        contactStatus: 'VENTA',
+                        isContacted: true
+                    }
+                });
+            }
+        }
 
             await tx.registerChanceSales.create({
                 data: {
@@ -181,7 +213,7 @@ export class SalesService {
 
         const where: any = {};
 
-        if (!['ADMIN', 'DESPACHO'].includes(requester.role || '')) {
+        if (!['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '')) {
             const authorizedUserIds = await this.getSubordinateIds(userId);
 
             where.userCreatorId = { in: authorizedUserIds };
@@ -206,9 +238,9 @@ export class SalesService {
         return resp;
     }
 
-    async findByProspectId(prospectId: number) {
+    async findByProspectId(contactId: number) {
         const sale = await this.prisma.registerSales.findFirst({
-            where: { prospectId },
+            where: { contactId },
             include: { products: true }
         });
 
@@ -238,7 +270,7 @@ export class SalesService {
             ]
         };
 
-        if (!['ADMIN', 'DESPACHO'].includes(requester.role || '')) {
+        if (!['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '')) {
             const authorizedUserIds = await this.getSubordinateIds(userId);
 
             where.userCreatorId = { in: authorizedUserIds };
@@ -259,7 +291,7 @@ export class SalesService {
 
             let finalDeliveryDate: Date | null | undefined = undefined;
 
-            if (data.packageStatus === 'ENTREGADO') {
+            if (data.packageStatus === 'ENTREGADO' || data.packageStatus === 'ENTREGADO CONFORME') {
                 finalDeliveryDate = data.deliveryDate ? new Date(data.deliveryDate) : new Date();
             } else {
                 finalDeliveryDate = null;
@@ -293,93 +325,130 @@ export class SalesService {
         const requester = await this.prisma.user.findUnique({ where: { id: userId } });
         if (!requester) throw new Error('Usuario no encontrado');
 
-        const hasFullAccess = ['ADMIN', 'DESPACHO'].includes(requester.role || '');
+        const hasFullAccess = ['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '');
 
         let authorizedUserIds: number[] = [];
         if (!hasFullAccess) {
             authorizedUserIds = await this.getSubordinateIds(userId);
         }
 
-        const sales = await this.prisma.registerSales.findMany({
-            where: {
-                status: true,
-                OR: [
-                    { clientName: { contains: term, mode: 'insensitive' } },
-                    { clientLastName: { contains: term, mode: 'insensitive' } },
-                    { phone: { contains: term, mode: 'insensitive' } },
-                ],
-
-                ...(hasFullAccess ? {} : { userCreatorId: { in: authorizedUserIds } })
-            },
-            include: {
-                creator: { select: { name: true } },
-                products: true,
-                prospect: true
-            },
-            take: 5
-        });
-
-        const prospects = await this.prisma.prospects.findMany({
-            where: {
-                status: true,
-                isSale: false,
-                OR: [
-                    { names: { contains: term, mode: 'insensitive' } },
-                    { lastNames: { contains: term, mode: 'insensitive' } },
-                    { phone: { contains: term, mode: 'insensitive' } },
-                ],
-
-                ...(hasFullAccess ? {} : {
-                    AND: [
-                        {
-                            OR: [
-                                { userCreatorId: { in: authorizedUserIds } },
-                                { sellerId: { in: authorizedUserIds } }
-                            ]
-                        }
+        const accessFilter = hasFullAccess ? {} : {
+            AND: [
+                {
+                    OR: [
+                        { userCreatorId: { in: authorizedUserIds } },
+                        { sellerId: { in: authorizedUserIds } }
                     ]
-                })
-            },
-            include: {
-                campaign: { select: { name: true } },
-                seller: { select: { name: true } }
-            },
-            take: 5
-        });
+                }
+            ]
+        };
+
+        const salesAccessFilter = hasFullAccess ? {} : { userCreatorId: { in: authorizedUserIds } };
+
+        const [sales, contacts, prospects] = await Promise.all([
+            this.prisma.registerSales.findMany({
+                where: {
+                    status: true,
+                    OR: [
+                        { clientName: { contains: term, mode: 'insensitive' } },
+                        { clientLastName: { contains: term, mode: 'insensitive' } },
+                        { phone: { contains: term, mode: 'insensitive' } },
+                    ],
+                    ...salesAccessFilter
+                },
+                include: {
+                    creator: { select: { name: true } },
+                    products: true,
+                    contact: true
+                },
+                take: 5
+            }),
+
+            this.prisma.contacts.findMany({
+                where: {
+                    status: true,
+                    OR: [
+                        { names: { contains: term, mode: 'insensitive' } },
+                        { lastNames: { contains: term, mode: 'insensitive' } },
+                        { phone: { contains: term, mode: 'insensitive' } },
+                    ],
+                    ...accessFilter
+                },
+                include: {
+                    seller: { select: { name: true } }
+                },
+                take: 5
+            }),
+
+            this.prisma.prospects.findMany({
+                where: {
+                    status: true,
+                    isSale: false,
+                    OR: [
+                        { names: { contains: term, mode: 'insensitive' } },
+                        { lastNames: { contains: term, mode: 'insensitive' } },
+                        { phone: { contains: term, mode: 'insensitive' } },
+                    ],
+                    ...accessFilter
+                },
+                include: {
+                    campaign: { select: { name: true } },
+                    seller: { select: { name: true } }
+                },
+                take: 5
+            })
+        ]);
 
         return {
             sales: sales.map(s => ({
                 id: s.id,
                 type: 'SALE',
                 fullName: `${s.clientName} ${s.clientLastName}`,
-                phone: s.phone || s.prospect?.phone,
-                address: s.address || s.prospect?.address,
-                city: s.city || s.prospect?.city,
-                state: s.state || s.prospect?.state,
-                zipCode: s.zipCode || s.prospect?.zipCode,
+                phone: s.phone || s.contact?.phone,
+                address: s.address || s.contact?.address,
+                city: s.city || s.contact?.city,
+                state: s.state || s.contact?.state,
+                zipCode: s.zipCode || s.contact?.zipCode,
                 netAmount: s.netAmount,
-                purchaseDate: s.createdAt,
+                purchaseDate: s.purchaseDate,
                 paymentMethod: s.paymentMethod,
                 packageStatus: s.packageStatus || 'PENDIENTE',
                 trackingLink: s.trackingLink,
                 products: s.products,
                 sellerName: s.creator?.name,
-                originType: s.prospect?.originType
+                originType: s.contact?.origin || 'Venta Directa'
             })),
-            prospects: prospects.map(p => ({
-                id: p.id,
-                type: 'PROSPECT',
-                fullName: `${p.names} ${p.lastNames}`,
-                phone: p.phone,
-                address: p.address,
-                city: p.city,
-                state: p.state,
-                zipCode: p.zipCode,
-                campaignName: p.campaign?.name,
-                contactStatus: p.contactStatus,
-                originType: p.originType,
-                sellerName: p.seller?.name || 'Sin asignar'
-            }))
+
+            prospects: [
+                ...contacts.map(c => ({
+                    id: c.id,
+                    type: 'CONTACT',
+                    fullName: `${c.names} ${c.lastNames}`,
+                    phone: c.phone,
+                    address: c.address,
+                    city: c.city,
+                    state: c.state,
+                    zipCode: c.zipCode,
+                    campaignName: 'ORGANICO',
+                    contactStatus: c.contactStatus,
+                    originType: c.origin,
+                    sellerName: c.seller?.name || 'Sin asignar'
+                })),
+                ...prospects.map(p => ({
+                    id: p.id,
+                    type: 'PROSPECT',
+                    fullName: `${p.names} ${p.lastNames}`,
+                    phone: p.phone,
+                    address: p.address,
+                    city: p.city,
+                    state: p.state,
+                    zipCode: p.zipCode,
+                    campaignName: p.campaign?.name,
+                    contactStatus: p.contactStatus,
+                    originType: p.originType,
+                    sellerName: p.seller?.name || 'Sin asignar'
+                }))
+            ]
         };
     }
 
@@ -696,7 +765,7 @@ export class SalesService {
     async getSaleHistory(saleId: number, userId: number) {
 
         const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-        const hasGlobalAccess = ["ADMIN", "DESPACHO"].includes(requester?.role || "");
+        const hasGlobalAccess = ["ADMIN", "DESPACHO", "SEGUIMIENTO"].includes(requester?.role || "");
 
         let allowedSellerIds: number[] = [];
 
@@ -735,11 +804,11 @@ export class SalesService {
                 const safeCardExp = dto.cardExp ? encrypt(dto.cardExp) : null;
                 const safeCardCvc = dto.cardCvc ? encrypt(dto.cardCvc) : null;
 
-                // 1. Crear la venta y sus productos anidados
                 const sale = await tx.registerSales.create({
                     data: {
                         userCreatorId: userId,
-                        prospectId: dto.prospectId || null,
+                        contactId: dto.contactId || null,
+                        purchaseDate: dto.purchaseDate,
                         clientName: dto.clientName,
                         clientLastName: dto.clientLastName,
                         phone: dto.phone,

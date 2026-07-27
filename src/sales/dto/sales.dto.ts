@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsArray, ValidateNested, IsNotEmpty, IsBoolean, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, ValidateNested, IsArray, IsDateString, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SaleProductDto {
@@ -20,7 +20,11 @@ export class SaleProductDto {
 export class CreateSaleDto {
   @IsNumber()
   @IsOptional()
-  prospectId?: number;
+  contactId?: number;
+
+  @IsDateString()
+  @IsOptional()
+  purchaseDate?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -96,9 +100,18 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SaleProductDto)
   products!: SaleProductDto[];
+
 }
 
 export class UpdateSaleDto {
+  @IsNumber()
+  @IsOptional()
+  contactId?: number;
+
+  @IsDateString()
+  @IsOptional()
+  purchaseDate?: string;
+
   @IsString()
   @IsOptional()
   clientName?: string;
@@ -200,6 +213,7 @@ export class UpdateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SaleProductDto)
   products?: SaleProductDto[];
+
 }
 
 export class BulkCreateSaleDto {

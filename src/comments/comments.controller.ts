@@ -3,13 +3,17 @@ import { CommentsService } from './comments.service';
 import { CreateCommentDto, UpdateCommentDto } from './dto/comments.dto';
 import { AuthGuard } from '@nestjs/passport';
 
+interface RequestWithUser extends Request {
+  user: { userId: number };
+}
+
 @Controller('comments')
 @UseGuards(AuthGuard('jwt'))
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) { }
 
   @Post()
-  create(@Body() dto: CreateCommentDto, @Req() req: any) {
+  create(@Body() dto: CreateCommentDto, @Req() req: RequestWithUser) {
     return this.commentsService.create(
       dto.prospectsId,
       dto.comment,
@@ -18,8 +22,8 @@ export class CommentsController {
   }
 
   @Get('prospect/:id')
-  findAllByProspect(@Param('id', ParseIntPipe) id: number) {
-    return this.commentsService.findAllByProspect(id);
+  findAllByProspect(@Param('id', ParseIntPipe) id: number, @Req() req: RequestWithUser) {
+    return this.commentsService.findAllByProspect(id, req.user.userId);
   }
 
   @Patch(':id')

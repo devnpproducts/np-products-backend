@@ -12,6 +12,8 @@ import { CommentsModule } from './comments/comments.module';
 import { ClientsModule } from './clients/clients.module';
 import { SalesModule } from './sales/sales.module';
 import { PdfModule } from './invoice-generator/invoice-generator.module';
+import { ContactsModule } from './contacts/contacts.module';
+import { CommentsContactsModule } from './commentsContacts/commentsContacts.module';
 
 @Module({
   imports: [
@@ -27,7 +29,9 @@ import { PdfModule } from './invoice-generator/invoice-generator.module';
     CommentsModule,
     ClientsModule,
     SalesModule,
-    PdfModule
+    PdfModule,
+    ContactsModule,
+    CommentsContactsModule
   ],
 })
 
