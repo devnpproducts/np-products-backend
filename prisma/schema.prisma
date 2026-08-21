@@ -20,6 +20,7 @@ enum ContactStatus {
   NO_CONTESTA
   VENTA
   NO_PASO_PENDIENTE
+  CON_DEMORA
   CITA
   AGENDADO
   NO_VENTA
@@ -114,6 +115,7 @@ model RegisterSales {
   state          String
   zipCode        String
   receiptUrl     String?
+  receipts        SaleReceipt[]
 
   // Datos de la Venta
   purchaseDate        DateTime @default(now())
@@ -153,6 +155,15 @@ model LogSesion {
   ip        String?
   device    String?
   createdAt DateTime @default(now())
+}
+
+model SaleReceipt {
+  id        Int           @id @default(autoincrement())
+  url       String        
+  saleId    Int
+  sale      RegisterSales @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime      @default(now())
 }
 
 model Products {
@@ -237,7 +248,7 @@ model Contacts {
   seller              User?         @relation("sellerContacts", fields: [sellerId], references: [id])
   status              Boolean       @default(true)
   originType          String        @default("CONTACT")
-  contactStatus       ContactStatus @default(LLAMADA)
+  contactStatus       ContactStatus @default(INGRESADO)
   paymentInstallments Int           @default(0)
   I1                  Float?
   I2                  Float?
@@ -279,7 +290,7 @@ model Prospects {
   seller        User?         @relation("sellerProspects", fields: [sellerId], references: [id])
   status        Boolean       @default(true)
   originType    String        @default("PROSPECT") // "BASE", "PROSPECT"
-  contactStatus ContactStatus @default(LLAMADA)
+  contactStatus ContactStatus @default(INGRESADO)
   isContacted   Boolean       @default(false)
   contactedAt   DateTime?
   meetingDate   DateTime?

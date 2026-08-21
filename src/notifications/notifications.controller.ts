@@ -1,14 +1,22 @@
-import { Controller, Get, Patch, Body, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Param, ParseIntPipe, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard, } from '@nestjs/passport';
+
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
 
+interface RequestWithUser extends Request {
+  user: { userId: number };
+}
+
+
 @Controller('notifications')
+@UseGuards(AuthGuard('jwt'))
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  findAll() {
-    return this.notificationsService.getRecent();
+  findAll(@Req() req: RequestWithUser) {
+    return this.notificationsService.getRecent(req.user.userId);
   }
 
   @Patch(':id/read')

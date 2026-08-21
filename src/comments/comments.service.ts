@@ -46,7 +46,7 @@ export class CommentsService {
       status: true
     };
 
-    const rolesConAccesoTotal = ['ADMIN', 'SUPERVISOR', 'DESPACHO', 'SEGUIMIENTO'];
+    const rolesConAccesoTotal = ['ADMINT', 'ADMIN', 'SUPERVISOR', 'DESPACHO', 'SEGUIMIENTO'];
 
     if (!requester.role || !rolesConAccesoTotal.includes(requester.role)) {
       where.userCreatorId = requester.id;

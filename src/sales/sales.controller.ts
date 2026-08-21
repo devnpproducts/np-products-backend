@@ -1,10 +1,11 @@
 // sales.controller.ts
-import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put, BadRequestException } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put, BadRequestException, UploadedFile, UseInterceptors, Delete } from '@nestjs/common';
+import { AuthGuard, } from '@nestjs/passport';
 import { v2 as cloudinary } from 'cloudinary';
 
 import { SalesService } from './sales.service';
 import { CreateSaleDto, UpdateSaleDto, BulkCreateSaleDto } from './dto/sales.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 interface RequestWithUser extends Request {
   user: { userId: number };
@@ -21,27 +22,35 @@ cloudinary.config({
 export class SalesController {
   constructor(private readonly salesService: SalesService) { }
 
-@Post('register')
-  async create(
-    @Req() req: RequestWithUser,
-    @Body() dto: CreateSaleDto & { receiptImageBase64?: string }
-  ) {
-    
-    let receiptUrl = null;
-
-    if (dto.receiptImageBase64) {
-      try {
-        const cloudResult = await cloudinary.uploader.upload(dto.receiptImageBase64, {
-          folder: 'ventas_comprobantes'
-        });
-        receiptUrl = cloudResult.secure_url; 
-      } catch (error) {
-        console.error("Error subiendo a Cloudinary:", error);
-        throw new BadRequestException('Hubo un problema al subir el comprobante de pago.');
-      }
+  @Post('upload-receipt')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadReceipt(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No se proporcionó ningún archivo de comprobante.');
     }
 
-    return this.salesService.registerSale(dto, req.user.userId, receiptUrl);
+    try {
+      const base64Image = Buffer.from(file.buffer).toString('base64');
+      const dataURI = `data:${file.mimetype};base64,${base64Image}`;
+
+      const cloudResult = await cloudinary.uploader.upload(dataURI, {
+        folder: 'ventas_comprobantes'
+      });
+
+      // Retorna la URL generada
+      return { url: cloudResult.secure_url };
+    } catch (error) {
+      console.error("Error subiendo a Cloudinary:", error);
+      throw new BadRequestException('Hubo un problema al subir el comprobante de pago.');
+    }
+  }
+
+  @Post('register')
+  async create(
+    @Req() req: RequestWithUser,
+    @Body() dto: CreateSaleDto & { receiptUrl?: string }
+  ) {
+    return this.salesService.registerSale(dto, req.user.userId, dto.receiptUrl);
   }
 
   @Post('bulk-register')
@@ -105,5 +114,13 @@ export class SalesController {
       ok: true,
       data: history
     };
+  }
+
+  @Delete(':id/receipt')
+  async removeReceipt(
+    @Param('id') saleId: string,
+    @Query('receiptUrl') receiptUrl: string,
+  ) {
+    return this.salesService.removeReceipt(+saleId, receiptUrl);
   }
 }

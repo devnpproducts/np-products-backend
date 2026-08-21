@@ -108,6 +108,15 @@ export class UpdateSaleDto {
   @IsOptional()
   contactId?: number;
 
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  receiptIdsToDelete?: string[];
+
+  @IsNumber()
+  @IsOptional()
+  userCreatorId?: number;
+
   @IsDateString()
   @IsOptional()
   purchaseDate?: string;

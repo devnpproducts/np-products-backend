@@ -30,7 +30,7 @@ export class RegisterSalesService {
             throw new Error('Sin ventas');
         }
 
-        if (userRoleValidation.role === 'ADMIN') {
+        if (userRoleValidation.role !== 'ADMIN') {
             userIdsToFilter = await this.getSubordinateIds(userId);
         }
 

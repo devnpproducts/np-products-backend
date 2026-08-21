@@ -22,6 +22,11 @@ export class ProspectsController {
     return this.prospectsService.create(dto, req.user.userId);
   }
 
+  @Patch('bulk-assign')
+  bulkAssign(@Body() body: { prospectIds: number[]; sellerId: number }) {
+    return this.prospectsService.bulkAssign(body.prospectIds, body.sellerId);
+  }
+
   @Get()
   findAll(
     @Query('type') type: 'precontact' | 'contact' | 'sale' = 'precontact',
@@ -57,12 +62,14 @@ export class ProspectsController {
   async uploadProspects(
     @Body('type') type: string,
     @Body('campaignId') campaignId: string,
+    @Body('sellerId') sellerId: string,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: RequestWithUser
   ) {
     const parsedCampaignId = campaignId && campaignId !== 'undefined' ? parseInt(campaignId, 10) : null;
+    const parsedSellerId = sellerId && sellerId !== 'undefined' ? parseInt(sellerId, 10) : null;
 
-    return this.prospectsService.processExcel(parsedCampaignId, file, req.user.userId, type);
+    return this.prospectsService.processExcel(parsedCampaignId, file, req.user.userId, type, parsedSellerId);
   }
 
   @Delete(':id')

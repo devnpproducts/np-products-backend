@@ -29,7 +29,7 @@ export class BasesService {
       throw new Error('Sin Bases');
     }
 
-    if (requester.role !== 'ADMIN') {
+    if (requester.role !== 'ADMIN' && requester.role !== 'ADMINT') {
       const authorizedUserIds = await this.getSubordinateIds(userId);
 
       where.AND = [

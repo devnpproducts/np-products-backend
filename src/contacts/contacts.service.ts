@@ -41,10 +41,15 @@ export class ContactsService {
       parsedDate = new Date(`${createdAt}T00:00:00.000Z`);
     }
 
-    // 3. Enviamos a Prisma
+    // Si no viene un sellerId, asignamos directamente el userId (userCreatorId)
+    const assignedSellerId = restData.sellerId
+      ? Number(restData.sellerId)
+      : userId;
+
     const contact = await this.prisma.contacts.create({
       data: {
         ...restData,
+        sellerId: assignedSellerId, // Se asigna el sellerId o el del creador por defecto
         createdAt: parsedDate,
         I1: amount ? Number(amount) : null,
         userCreatorId: userId,
@@ -67,17 +72,10 @@ export class ContactsService {
       autoCreated: false
     };
 
-    if (requester.role !== 'ADMIN' && requester.role !== 'SEGUIMIENTO') {
+    if (requester.role !== 'ADMINT' && requester.role !== 'ADMIN' && requester.role !== 'SEGUIMIENTO') {
       const authorizedUserIds = await this.getSubordinateIds(userId);
 
-      where.AND = [
-        {
-          OR: [
-            { userCreatorId: { in: authorizedUserIds } },
-            { sellerId: { in: authorizedUserIds } }
-          ]
-        }
-      ];
+      where.sellerId = { in: authorizedUserIds };
     }
 
     if (type === 'sale') {
@@ -89,7 +87,6 @@ export class ContactsService {
       include: {
         seller: { select: { name: true, user: true, role: true } },
         creator: { select: { user: true, name: true } },
-        sale: true
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -106,13 +103,12 @@ export class ContactsService {
       include: {
         seller: { select: { name: true, user: true, role: true } },
         creator: { select: { user: true, name: true } },
-        sale: true
       }
     });
 
     if (!contact) throw new NotFoundException('Contacto no encontrado');
 
-    if (requester.role !== 'ADMIN' && requester.role !== 'SEGUIMIENTO') {
+    if (requester.role !== 'ADMINT' && requester.role !== 'ADMIN' && requester.role !== 'SEGUIMIENTO') {
       const canAccess = authorizedUserIds.includes(contact.userCreatorId) || (contact.sellerId && authorizedUserIds.includes(contact.sellerId));
       if (!canAccess) throw new BadRequestException('No tienes permisos para ver este contacto');
     }

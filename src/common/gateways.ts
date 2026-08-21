@@ -25,8 +25,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     console.log(`🚀 Cliente conectado: ${client.id} | Usuario: ${userId} | Rol: ${role}`);
 
-    // 1. Si es ADMIN o SUPERVISOR, lo metemos a la sala de gerencia
-    if (role === 'ADMIN' || role === 'SUPERVISOR') {
+    if (role === 'ADMINT' || role === 'ADMIN' || role === 'SUPERVISOR') {
       client.join('room_management');
       console.log(`🏠 Cliente ${client.id} unido a room_management`);
     }
@@ -76,6 +75,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     console.log(`📡 Evento 'update_contacts' enviado a salas correspondientes`);
+  }
+
+  emitSalesUpdate(sellerId: number | null, payload: any) {
+    const cleanPayload = JSON.parse(JSON.stringify(payload));
+
+    this.server.to('room_management').emit('update_sales', cleanPayload);
+
+    if (sellerId) {
+      this.server.to(`room_user_${sellerId}`).emit('update_sales', cleanPayload);
+    }
+
+    console.log(`📡 Evento 'update_sales' enviado a salas correspondientes`);
   }
 
   notifyUser(userId: number, type: string, payload: any) {

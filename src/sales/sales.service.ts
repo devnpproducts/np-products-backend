@@ -1,10 +1,17 @@
 // sales.service.ts
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../database/prisma.service';
-import { UpdateSaleDto, CreateSaleDto } from './dto/sales.dto';
+import { v2 as cloudinary } from 'cloudinary';
 
 import { EventsGateway } from '../common/gateways';
 import { encrypt, decrypt } from '../utils/crypto.util';
+import { UpdateSaleDto, CreateSaleDto } from './dto/sales.dto';
+import { PrismaService } from '../database/prisma.service';
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 @Injectable()
 export class SalesService {
@@ -19,6 +26,64 @@ export class SalesService {
         let ids = subordinates.map(s => s.id);
 
         return [managerId, ...ids];
+    }
+
+    private extractPublicIdFromUrl(url: string): string | null {
+        try {
+            const parts = url.split('/upload/');
+            if (parts.length < 2) return null;
+
+            // Quitamos el prefijo de versión v1234567/ si existe
+            const pathAfterUpload = parts[1].replace(/^v\d+\//, '');
+
+            // Quitamos la extensión (.jpg, .png, .pdf, etc.)
+            const publicId = pathAfterUpload.substring(0, pathAfterUpload.lastIndexOf('.'));
+            return publicId;
+        } catch (error) {
+            console.error('Error al extraer public_id de Cloudinary:', error);
+            return null;
+        }
+    }
+
+    private async getAccessConfig(userId: number) {
+        const requester = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (!requester) throw new Error('Usuario no encontrado');
+
+        const role = requester.role?.toUpperCase() || '';
+
+        // 1. ADMINT: Ve todo de manera global
+        if (role === 'ADMINT') {
+            return { global: true, excludeAffiliates: false, authorizedUserIds: [] };
+        }
+
+        // 2. ADMIN y DESPACHO: Global, pero sin notificaciones de afiliados
+        if (role === 'ADMIN' || role === 'DESPACHO') {
+            return { global: true, excludeAffiliates: true, authorizedUserIds: [] };
+        }
+
+        // 3. ÚNICAMENTE SEGUIMIENTO: Usa el ID de su jefe para ver el equipo al que asiste
+        if (role === 'SEGUIMIENTO') {
+            const targetManagerId = requester.managerId ? requester.managerId : requester.id;
+            let authorizedUserIds = await this.getSubordinateIds(targetManagerId);
+
+            // Filtro de seguridad: Si el jefe de Seguimiento es un ADMINT o ADMIN,
+            // quitamos su ID del array para no filtrar las notificaciones globales hacia abajo
+            const targetManager = await this.prisma.user.findUnique({
+                where: { id: targetManagerId },
+                select: { role: true }
+            });
+
+            if (targetManager && ['ADMINT', 'ADMIN'].includes(targetManager.role?.toUpperCase() || '')) {
+                authorizedUserIds = authorizedUserIds.filter(id => id !== targetManagerId);
+            }
+
+            return { global: false, excludeAffiliates: false, authorizedUserIds };
+        }
+
+        // 4. SUPERVISORES Y DEMÁS ROLES (Vendedores, etc): 
+        // Solo su propio usuario (requester.id) y sus subordinados directos.
+        const authorizedUserIds = await this.getSubordinateIds(requester.id);
+        return { global: false, excludeAffiliates: false, authorizedUserIds };
     }
 
     async registerSale(dto: CreateSaleDto, userId: number, receiptUrl?: string | null) {
@@ -93,9 +158,21 @@ export class SalesService {
                     }
                 },
                 include: {
-                    creator: { select: { name: true } }
+                    creator: { select: { name: true } },
+                    receipts: true
                 }
             });
+
+
+            if (receiptUrl) {
+                await tx.saleReceipt.create({
+                    data: {
+                        url: receiptUrl,
+                        saleId: sale.id,
+                    },
+                });
+            }
+
 
             for (const p of (dto.products || [])) {
                 await tx.products.updateMany({
@@ -121,25 +198,25 @@ export class SalesService {
             }
 
             if (dto.contactId) {
-            const becameProspect = await tx.prospects.findFirst({
-                where: { 
-                    id: dto.contactId,
-                    originType: 'BASE' 
-                }
-            });
-
-            if (becameProspect) {
-                await tx.prospects.update({
-                    where: { id: becameProspect.id },
-                    data: {
-                        isSale: true,
-                        soldAt: new Date(),
-                        contactStatus: 'VENTA',
-                        isContacted: true
+                const becameProspect = await tx.prospects.findFirst({
+                    where: {
+                        id: dto.contactId,
+                        originType: 'BASE'
                     }
                 });
+
+                if (becameProspect) {
+                    await tx.prospects.update({
+                        where: { id: becameProspect.id },
+                        data: {
+                            isSale: true,
+                            soldAt: new Date(),
+                            contactStatus: 'VENTA',
+                            isContacted: true
+                        }
+                    });
+                }
             }
-        }
 
             await tx.registerChanceSales.create({
                 data: {
@@ -208,22 +285,27 @@ export class SalesService {
     }
 
     async findAll(userId: number) {
-        const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-        if (!requester) throw new Error('Usuario no encontrado');
-
+        const access = await this.getAccessConfig(userId);
         const where: any = {};
 
-        if (!['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '')) {
-            const authorizedUserIds = await this.getSubordinateIds(userId);
-
-            where.userCreatorId = { in: authorizedUserIds };
+        if (access.global) {
+            if (access.excludeAffiliates) {
+                // Como userCreatorId nunca es null según tu esquema, 
+                // podemos simplificar la consulta directamente así:
+                where.creator = {
+                    role: { not: 'AFILIADO' }
+                };
+            }
+        } else {
+            where.userCreatorId = { in: access.authorizedUserIds };
         }
 
         const resp = await this.prisma.registerSales.findMany({
             where,
             include: {
-                creator: { select: { name: true } },
+                creator: { select: { id: true, name: true } },
                 products: true,
+                receipts: true,
             },
             orderBy: { createdAt: 'desc' }
         });
@@ -257,9 +339,7 @@ export class SalesService {
     }
 
     async searchSales(term: string, userId: number) {
-        const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-
-        if (!requester) throw new Error('Usuario no encontrado');
+        const access = await this.getAccessConfig(userId);
 
         const where: any = {
             OR: [
@@ -270,10 +350,18 @@ export class SalesService {
             ]
         };
 
-        if (!['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '')) {
-            const authorizedUserIds = await this.getSubordinateIds(userId);
-
-            where.userCreatorId = { in: authorizedUserIds };
+        if (access.global) {
+            if (access.excludeAffiliates) {
+                where.AND = [
+                    {
+                        OR: [
+                            { creator: { role: { not: 'AFILIADO' } } }
+                        ]
+                    }
+                ];
+            }
+        } else {
+            where.userCreatorId = { in: access.authorizedUserIds };
         }
 
         return this.prisma.registerSales.findMany({
@@ -322,28 +410,30 @@ export class SalesService {
     }
 
     async globalSearch(term: string, userId: number) {
-        const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-        if (!requester) throw new Error('Usuario no encontrado');
+        const access = await this.getAccessConfig(userId);
 
-        const hasFullAccess = ['ADMIN', 'DESPACHO', 'SEGUIMIENTO'].includes(requester.role || '');
+        // Construcción de filtros sin asignar `null` a campos obligatorios
+        const salesAccessFilter = access.global
+            ? (access.excludeAffiliates ? { creator: { role: { not: 'AFILIADO' } } } : {})
+            : { userCreatorId: { in: access.authorizedUserIds } };
 
-        let authorizedUserIds: number[] = [];
-        if (!hasFullAccess) {
-            authorizedUserIds = await this.getSubordinateIds(userId);
-        }
+        const contactsAccessFilter = access.global
+            ? (access.excludeAffiliates ? { seller: { role: { not: 'AFILIADO' } } } : {})
+            : {
+                OR: [
+                    { userCreatorId: { in: access.authorizedUserIds } },
+                    { sellerId: { in: access.authorizedUserIds } }
+                ]
+            };
 
-        const accessFilter = hasFullAccess ? {} : {
-            AND: [
-                {
-                    OR: [
-                        { userCreatorId: { in: authorizedUserIds } },
-                        { sellerId: { in: authorizedUserIds } }
-                    ]
-                }
-            ]
-        };
-
-        const salesAccessFilter = hasFullAccess ? {} : { userCreatorId: { in: authorizedUserIds } };
+        const prospectsAccessFilter = access.global
+            ? (access.excludeAffiliates ? { seller: { role: { not: 'AFILIADO' } } } : {})
+            : {
+                OR: [
+                    { userCreatorId: { in: access.authorizedUserIds } },
+                    { sellerId: { in: access.authorizedUserIds } }
+                ]
+            };
 
         const [sales, contacts, prospects] = await Promise.all([
             this.prisma.registerSales.findMany({
@@ -372,7 +462,7 @@ export class SalesService {
                         { lastNames: { contains: term, mode: 'insensitive' } },
                         { phone: { contains: term, mode: 'insensitive' } },
                     ],
-                    ...accessFilter
+                    ...contactsAccessFilter
                 },
                 include: {
                     seller: { select: { name: true } }
@@ -389,7 +479,7 @@ export class SalesService {
                         { lastNames: { contains: term, mode: 'insensitive' } },
                         { phone: { contains: term, mode: 'insensitive' } },
                     ],
-                    ...accessFilter
+                    ...prospectsAccessFilter
                 },
                 include: {
                     campaign: { select: { name: true } },
@@ -457,14 +547,48 @@ export class SalesService {
             where: { id: saleId }
         });
 
+        const fieldLabels: Record<string, string> = {
+            clientName: 'Nombres del Cliente',
+            clientLastName: 'Apellidos del Cliente',
+            phone: 'Teléfono',
+            address: 'Dirección',
+            city: 'Ciudad',
+            state: 'Estado/Provincia',
+            zipCode: 'Código Postal',
+            receiptUrl: 'URL del Recibo',
+            grossAmount: 'Monto Bruto',
+            tax: 'Impuestos',
+            netAmount: 'Monto Neto',
+            paymentMethod: 'Método de Pago',
+            comments: 'Comentarios',
+            paymentInstallments: 'Número de Cuotas',
+            trackingNumber: 'Número de Seguimiento',
+            trackingLink: 'Link de Seguimiento',
+            packageStatus: 'Estado del Paquete',
+            deliveryDate: 'Fecha de Entrega',
+            dispatchDate: 'Fecha de Despacho',
+            status: 'Estado (Activo/Inactivo)',
+            userCreatorId: 'Vendedor Asignado',
+            sellerId: 'Vendedor Asignado',
+            products: 'Productos',
+            cardHolder: 'Titular de la Tarjeta',
+            cardNumber: 'Número de la Tarjeta',
+            cardExp: 'Expiración de la Tarjeta',
+            cardCvc: 'CVC de la Tarjeta'
+        };
+
         if (!saleExists) {
             throw new NotFoundException(`La venta con ID #${saleId} no existe en el sistema.`);
         }
 
         return await this.prisma.$transaction(async (tx) => {
+            const sellerBefore = await tx.registerSales.findUnique({ where: { id: Number(saleId) } });
+            const editor = await tx.user.findUnique({ where: { id: userId }, select: { name: true } });
+
             const saleUpdatePayload: any = {
                 clientName: data.clientName,
                 clientLastName: data.clientLastName,
+                userCreatorId: data.userCreatorId,
                 phone: data.phone,
                 address: data.address,
                 city: data.city,
@@ -485,6 +609,26 @@ export class SalesService {
                 deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : undefined,
                 dispatchDate: data.dispatchDate ? new Date(data.dispatchDate) : undefined,
             };
+
+            const fieldsUpdated = Object.keys(data);
+            const translatedFields = fieldsUpdated
+                .map(field => fieldLabels[field] || field)
+                .join(', ');
+
+            let actionType = 'ACTUALIZACION';
+            let details = `Campos modificados: ${translatedFields}`;
+
+            if (fieldsUpdated.length === 1 && (fieldsUpdated[0] === 'sellerId' || fieldsUpdated[0] === 'userCreatorId')) {
+                const targetSeller = data.userCreatorId;
+
+                if (targetSeller === null) {
+                    actionType = 'DESASIGNACION';
+                    details = 'La venta fue retirada de tu lista y enviada a bandeja general';
+                } else {
+                    actionType = 'ASIGNACION';
+                    details = 'La venta fue reasignada a un asesor';
+                }
+            }
 
             if (data.paymentMethod === "DEBIT CREDIT") {
                 if (data.cardHolder) saleUpdatePayload.cardHolder = encrypt(data.cardHolder);
@@ -536,6 +680,28 @@ export class SalesService {
                 where: { id: saleId },
                 data: saleUpdatePayload
             });
+
+            if (data.receiptIdsToDelete && data.receiptIdsToDelete.length > 0) {
+                const idsComoNumeros = data.receiptIdsToDelete.map((id: string | number) => Number(id));
+
+                await tx.saleReceipt.deleteMany({
+                    where: {
+                        id: {
+                            in: idsComoNumeros,
+                        },
+                        saleId: saleId,
+                    },
+                });
+            }
+
+            if (data.receiptUrl) {
+                await tx.saleReceipt.create({
+                    data: {
+                        url: data.receiptUrl,
+                        saleId: saleId,
+                    },
+                });
+            }
 
             if (data.products && Array.isArray(data.products)) {
                 const existingProducts = await tx.saleProducts.findMany({
@@ -599,15 +765,46 @@ export class SalesService {
                 }
             });
 
+
+            const oldSellerId = sellerBefore?.userCreatorId;
+            const newSellerId = updatedSale.userCreatorId;
+
+            if ('sellerId' in data && oldSellerId !== newSellerId) {
+
+                if (oldSellerId) {
+                    this.eventsGateway.emitSalesUpdate(oldSellerId, {
+                        id: updatedSale.id,
+                        message: 'Una venta ha sido retirada de tu lista.',
+                        type: 'DESASIGNACION',
+                        user: editor?.name || "Sistema",
+                        updatedData: true
+                    });
+                }
+
+                if (newSellerId) {
+                    this.eventsGateway.emitSalesUpdate(newSellerId, {
+                        id: updatedSale.id,
+                        message: 'Se te ha asignado una nueva venta.',
+                        type: 'ASIGNACION',
+                        user: editor?.name || "Sistema",
+                        updatedData: true,
+                        targetUserId: newSellerId
+                    });
+                }
+            }
+
+            else if (updatedSale.userCreatorId) {
+                this.eventsGateway.emitSalesUpdate(updatedSale.userCreatorId, {
+                    id: updatedSale.id, message: details, type: actionType, user: editor?.name || "Sistema", updatedData: true
+                });
+            }
+
             return updatedSale;
         });
     }
 
     async getDashboardMetrics(range: string, userId: number) {
-        const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-        const isAdmin = requester?.role === 'ADMIN';
-
-        const authorizedUserIds = isAdmin ? [] : await this.getSubordinateIds(userId);
+        const access = await this.getAccessConfig(userId);
 
         const now = new Date();
         let startDate = new Date();
@@ -620,30 +817,26 @@ export class SalesService {
             startDate.setMonth(now.getMonth() - 1);
         }
 
-        const salesWhere: any = {
-            createdAt: { gte: startDate },
-            status: true
-        };
-
-        const prospectWhere: any = {
-            createdAt: { gte: startDate },
-            status: true
-        };
-
-        if (!isAdmin) {
-            salesWhere.userCreatorId = { in: authorizedUserIds };
-            prospectWhere.OR = [
-                { userCreatorId: { in: authorizedUserIds } },
-                { sellerId: { in: authorizedUserIds } }
-            ];
-        }
-
         const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-        const trendSalesWhere = {
-            createdAt: { gte: fourteenDaysAgo },
-            status: true,
-            ...(!isAdmin ? { userCreatorId: { in: authorizedUserIds } } : {})
-        };
+
+        const salesWhere: any = { createdAt: { gte: startDate }, status: true };
+        const prospectWhere: any = { createdAt: { gte: startDate }, status: true };
+        const trendSalesWhere: any = { createdAt: { gte: fourteenDaysAgo }, status: true };
+
+        if (access.global) {
+            if (access.excludeAffiliates) {
+                salesWhere.AND = [{ OR: [{ userCreatorId: null }, { creator: { role: { not: 'AFILIADO' } } }] }];
+                prospectWhere.AND = [{ OR: [{ sellerId: null }, { seller: { role: { not: 'AFILIADO' } } }] }];
+                trendSalesWhere.AND = [{ OR: [{ userCreatorId: null }, { creator: { role: { not: 'AFILIADO' } } }] }];
+            }
+        } else {
+            salesWhere.userCreatorId = { in: access.authorizedUserIds };
+            prospectWhere.OR = [
+                { userCreatorId: { in: access.authorizedUserIds } },
+                { sellerId: { in: access.authorizedUserIds } }
+            ];
+            trendSalesWhere.userCreatorId = { in: access.authorizedUserIds };
+        }
 
         const [
             salesData,
@@ -765,7 +958,7 @@ export class SalesService {
     async getSaleHistory(saleId: number, userId: number) {
 
         const requester = await this.prisma.user.findUnique({ where: { id: userId } });
-        const hasGlobalAccess = ["ADMIN", "DESPACHO", "SEGUIMIENTO"].includes(requester?.role || "");
+        const hasGlobalAccess = ["ADMINT", "ADMIN", "DESPACHO", "SEGUIMIENTO"].includes(requester?.role || "");
 
         let allowedSellerIds: number[] = [];
 
@@ -867,6 +1060,65 @@ export class SalesService {
                 count: createdSales.length
             };
         });
+    }
+
+    async removeReceipt(saleId: number | string, receiptUrl: string) {
+        const numericSaleId = Number(saleId);
+
+        if (isNaN(numericSaleId)) {
+            throw new BadRequestException('El ID de la venta no es válido');
+        }
+
+        if (!receiptUrl) {
+            throw new BadRequestException('La URL del comprobante es obligatoria');
+        }
+
+        // 1. Verificar si la venta existe
+        const sale = await this.prisma.registerSales.findUnique({
+            where: { id: numericSaleId },
+            include: { receipts: true },
+        });
+
+        if (!sale) {
+            throw new NotFoundException('Venta no encontrada');
+        }
+
+        // 2. Borrar el registro de la tabla relacional SaleReceipt
+        const deleteResult = await this.prisma.saleReceipt.deleteMany({
+            where: {
+                saleId: numericSaleId,
+                url: receiptUrl,
+            },
+        });
+
+        // 3. Si el campo singular 'receiptUrl' coincide, actualizarlo o limpiarlo
+        if (sale.receiptUrl === receiptUrl) {
+            const remainingReceipt = sale.receipts.find((r) => r.url !== receiptUrl);
+
+            await this.prisma.registerSales.update({
+                where: { id: numericSaleId },
+                data: {
+                    receiptUrl: remainingReceipt ? remainingReceipt.url : null,
+                },
+            });
+        }
+
+        // 4. Eliminar el archivo físico de Cloudinary
+        const publicId = this.extractPublicIdFromUrl(receiptUrl);
+
+        if (publicId) {
+            try {
+                await cloudinary.uploader.destroy(publicId);
+            } catch (cloudError) {
+                console.error(`No se pudo eliminar el archivo en Cloudinary (${publicId}):`, cloudError);
+            }
+        }
+
+        return {
+            ok: true,
+            message: 'Comprobante y archivo eliminados correctamente',
+            deletedCount: deleteResult.count,
+        };
     }
 
 }

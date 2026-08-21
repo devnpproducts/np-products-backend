@@ -80,6 +80,7 @@ export class ProspectsService {
 
     return prospect;
   }
+
   async findAll(type: 'precontact' | 'contact' | 'sale', userId: number) {
     const requester = await this.prisma.user.findUnique({ where: { id: userId } });
 
@@ -91,7 +92,7 @@ export class ProspectsService {
       status: true
     };
 
-    if (requester.role !== 'ADMIN') {
+    if (requester.role !== 'ADMINT' && requester.role !== 'ADMIN') {
       const authorizedUserIds = await this.getSubordinateIds(userId);
 
       where.AND = [
@@ -321,7 +322,7 @@ export class ProspectsService {
     return result;
   }
 
-  async processExcel(campaignId: number | null, file: Express.Multer.File, userId: number, type: string) {
+  async processExcel(campaignId: number | null, file: Express.Multer.File, userId: number, type: string, sellerId: number | null) {
     if (!file) throw new BadRequestException('Archivo no proporcionado');
 
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
@@ -395,6 +396,7 @@ export class ProspectsService {
 
           importId: prospectImport.id,
           campaignId: campaignId || null,
+          sellerId: sellerId || null,
           originType: type,
           status: true,
           isDuplicate: isDuplicate
@@ -463,6 +465,13 @@ export class ProspectsService {
         newCount: newCount,
         duplicateCount: duplicateCount
       };
+    });
+  }
+
+  async bulkAssign(prospectIds: number[], sellerId: number) {
+    return await this.prisma.prospects.updateMany({
+      where: { id: { in: prospectIds } },
+      data: { sellerId: sellerId }
     });
   }
 

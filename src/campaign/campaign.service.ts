@@ -28,14 +28,8 @@ export class CampaignService {
       throw new Error('Sin Bases');
     }
 
-    if (requester.role !== 'ADMIN') {
-      where.AND = [
-        {
-          OR: [
-            { userCreatorId: userId }
-          ]
-        }
-      ];
+    if (requester.role !== 'ADMIN' && requester.role !== 'ADMINT') {
+      where.userCreatorId = requester.managerId;
     }
 
     return this.prisma.campaigns.findMany({
