@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import * as path from 'path';
 const { ZipArchive } = require('archiver');
 import { PassThrough } from 'stream';
@@ -18,6 +18,10 @@ export class InvoiceGeneratorService {
         endDate: string;
     }): Promise<Buffer> {
         const sales = await this.salesService.findForBulkExport(params);
+
+        if (!sales || sales.length === 0) {
+            throw new NotFoundException('No se encontraron ventas para los filtros seleccionados en este rango de fechas');
+        }
 
         // En archiver v8 se instancia directamente la clase ZipArchive sin pasar 'zip' como argumento
         const archive = new ZipArchive({ zlib: { level: 9 } });
