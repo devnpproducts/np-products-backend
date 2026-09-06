@@ -21,7 +21,7 @@ export class PdfController {
         if (!startDate || !endDate) {
             throw new NotFoundException('El rango de fechas es obligatorio');
         }
-
+console.log('llego aqui al controller bulk')
         const zipBuffer = await this.invoiceGeneratorService.generateBulkZipPDF({
             sellerId,
             supervisorId,
