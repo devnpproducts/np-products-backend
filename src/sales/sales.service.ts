@@ -347,14 +347,14 @@ export class SalesService {
             where.userCreatorId = { in: subIds };
         }
 
-        // 2. Filtrar por rango de fechas (creación de la venta)
+/*         // 2. Filtrar por rango de fechas (creación de la venta)
         if (params.startDate && params.endDate) {
             where.createdAt = {
                 gte: new Date(params.startDate),
                 lte: new Date(`${params.endDate}T23:59:59.999Z`),
             };
         }
-
+ */
         // 3. Consultar todas las ventas de golpe
         const sales = await this.prisma.registerSales.findMany({
             where,
