@@ -261,8 +261,14 @@ export class SalesService {
     }
 
     async findOne(id: number) {
+        const parsedId = Number(id);
+
+        if (!parsedId || isNaN(parsedId)) {
+            throw new NotFoundException(`El ID proporcionado no es válido.`);
+        }
+
         const sale = await this.prisma.registerSales.findUnique({
-            where: { id },
+            where: { id: parsedId },
             include: {
                 creator: { select: { name: true } },
                 products: true,
@@ -270,7 +276,7 @@ export class SalesService {
         });
 
         if (!sale) {
-            throw new NotFoundException(`La venta con ID ${id} no fue encontrada en el sistema.`);
+            throw new NotFoundException(`La venta con ID ${parsedId} no fue encontrada en el sistema.`);
         }
 
         if (sale.cardHolder) sale.cardHolder = decrypt(sale.cardHolder);
@@ -282,7 +288,7 @@ export class SalesService {
             ...sale,
             sellerName: sale.creator?.name || 'N/A'
         };
-    }
+    };
 
     async findAll(userId: number) {
         const access = await this.getAccessConfig(userId);
@@ -318,6 +324,58 @@ export class SalesService {
         });
 
         return resp;
+    }
+
+    async findForBulkExport(params: {
+        sellerId?: string;
+        supervisorId?: string;
+        startDate: string;
+        endDate: string;
+    }) {
+        const where: any = {};
+
+        // 1. Filtrar por Vendedor individual o por Supervisor (equipo)
+        if (params.sellerId) {
+            where.userCreatorId = Number(params.sellerId);
+        } else if (params.supervisorId) {
+            // Buscamos todos los usuarios que tengan este supervisor como managerId
+            const subordinates = await this.prisma.user.findMany({
+                where: { managerId: Number(params.supervisorId) },
+                select: { id: true }
+            });
+            const subIds = subordinates.map(sub => sub.id);
+            where.userCreatorId = { in: subIds };
+        }
+
+        // 2. Filtrar por rango de fechas (creación de la venta)
+        if (params.startDate && params.endDate) {
+            where.createdAt = {
+                gte: new Date(params.startDate),
+                lte: new Date(`${params.endDate}T23:59:59.999Z`),
+            };
+        }
+
+        // 3. Consultar todas las ventas de golpe
+        const sales = await this.prisma.registerSales.findMany({
+            where,
+            include: {
+                creator: { select: { name: true } },
+                products: true,
+            },
+        });
+
+        // 4. Desencriptar datos sensibles (reutilizando tu lógica de findOne)
+        return sales.map(sale => {
+            if (sale.cardHolder) sale.cardHolder = decrypt(sale.cardHolder);
+            if (sale.cardNumber) sale.cardNumber = decrypt(sale.cardNumber);
+            if (sale.cardExp) sale.cardExp = decrypt(sale.cardExp);
+            if (sale.cardCvc) sale.cardCvc = decrypt(sale.cardCvc);
+
+            return {
+                ...sale,
+                sellerName: sale.creator?.name || 'N/A'
+            };
+        });
     }
 
     async findByProspectId(contactId: number) {

@@ -1,10 +1,46 @@
 import { Injectable } from '@nestjs/common';
 import * as path from 'path';
+const { ZipArchive } = require('archiver');
+import { PassThrough } from 'stream';
+
+import { SalesService } from '../sales/sales.service';
 
 const logoPath = path.join(process.cwd(), 'assets', 'logo_boleta.png');
 
 @Injectable()
 export class InvoiceGeneratorService {
+    constructor(private readonly salesService: SalesService) { }
+
+    async generateBulkZipPDF(params: {
+        sellerId?: string;
+        supervisorId?: string;
+        startDate: string;
+        endDate: string;
+    }): Promise<Buffer> {
+        const sales = await this.salesService.findForBulkExport(params);
+
+        // En archiver v8 se instancia directamente la clase ZipArchive sin pasar 'zip' como argumento
+        const archive = new ZipArchive({ zlib: { level: 9 } });
+        const chunks: Buffer[] = [];
+
+        const passthrough = new PassThrough();
+        passthrough.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+        return new Promise(async (resolve, reject) => {
+            passthrough.on('end', () => resolve(Buffer.concat(chunks)));
+            archive.on('error', (err: any) => reject(err));
+
+            archive.pipe(passthrough);
+
+            for (const sale of sales) {
+                const pdfBuffer = await this.generatePDF(sale);
+                archive.append(pdfBuffer, { name: `orden_${sale.id}.pdf` });
+            }
+
+            await archive.finalize();
+        });
+    }
+
     async generatePDF(saleData: any): Promise<Buffer> {
         return new Promise((resolve, reject) => {
             try {
