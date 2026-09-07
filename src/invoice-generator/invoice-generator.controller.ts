@@ -18,10 +18,11 @@ export class PdfController {
         @Query('endDate') endDate: string,
         @Res() res: Response
     ) {
+        console.log('PARAMS CRUDOS RECIBIDOS:', { sellerId, supervisorId, startDate, endDate });
         if (!startDate || !endDate) {
             throw new NotFoundException('El rango de fechas es obligatorio');
         }
-console.log('llego aqui al controller bulk')
+
         const zipBuffer = await this.invoiceGeneratorService.generateBulkZipPDF({
             sellerId,
             supervisorId,
