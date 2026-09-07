@@ -334,28 +334,30 @@ export class SalesService {
     }) {
         const where: any = {};
 
-        // 1. Filtrar por Vendedor individual o por Supervisor (equipo)
+        // Si viene un sellerId, buscamos las ventas donde él sea el creador directo
         if (params.sellerId) {
             where.userCreatorId = Number(params.sellerId);
         } else if (params.supervisorId) {
-            // Buscamos todos los usuarios que tengan este supervisor como managerId
+            // Si viene un supervisorId, buscamos las de sus subordinados
             const subordinates = await this.prisma.user.findMany({
                 where: { managerId: Number(params.supervisorId) },
                 select: { id: true }
             });
             const subIds = subordinates.map(sub => sub.id);
+
+            // Opcional: Incluir también al propio supervisor si él mismo registra ventas
+            subIds.push(Number(params.supervisorId));
+
             where.userCreatorId = { in: subIds };
         }
 
-        // 2. Filtrar por rango de fechas (creación de la venta)
         if (params.startDate && params.endDate) {
             where.createdAt = {
                 gte: new Date(params.startDate),
                 lte: new Date(`${params.endDate}T23:59:59.999Z`),
             };
         }
-console.log('FILTRO EN PRODUCCION:', JSON.stringify(where, null, 2));
-        // 3. Consultar todas las ventas de golpe
+        console.log('FILTRO EN PRODUCCION:', JSON.stringify(where, null, 2));
         const sales = await this.prisma.registerSales.findMany({
             where,
             include: {
@@ -364,18 +366,10 @@ console.log('FILTRO EN PRODUCCION:', JSON.stringify(where, null, 2));
             },
         });
 
-        // 4. Desencriptar datos sensibles (reutilizando tu lógica de findOne)
-        return sales.map(sale => {
-            if (sale.cardHolder) sale.cardHolder = decrypt(sale.cardHolder);
-            if (sale.cardNumber) sale.cardNumber = decrypt(sale.cardNumber);
-            if (sale.cardExp) sale.cardExp = decrypt(sale.cardExp);
-            if (sale.cardCvc) sale.cardCvc = decrypt(sale.cardCvc);
-
-            return {
-                ...sale,
-                sellerName: sale.creator?.name || 'N/A'
-            };
-        });
+        return sales.map(sale => ({
+            ...sale,
+            sellerName: sale.creator?.name || 'N/A'
+        }));
     }
 
     async findByProspectId(contactId: number) {
