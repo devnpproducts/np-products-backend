@@ -357,7 +357,7 @@ export class SalesService {
                 lte: new Date(`${params.endDate}T23:59:59.999Z`),
             };
         }
-        console.log('FILTRO EN PRODUCCION:', JSON.stringify(where, null, 2));
+        
         const sales = await this.prisma.registerSales.findMany({
             where,
             include: {

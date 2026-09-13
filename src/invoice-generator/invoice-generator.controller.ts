@@ -18,7 +18,7 @@ export class PdfController {
         @Query('endDate') endDate: string,
         @Res() res: Response
     ) {
-        console.log('PARAMS CRUDOS RECIBIDOS:', { sellerId, supervisorId, startDate, endDate });
+        
         if (!startDate || !endDate) {
             throw new NotFoundException('El rango de fechas es obligatorio');
         }
