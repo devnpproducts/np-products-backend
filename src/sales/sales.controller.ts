@@ -1,11 +1,11 @@
 // sales.controller.ts
-import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put, BadRequestException, UploadedFile, UseInterceptors, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Req, Patch, Query, Param, Put, BadRequestException, UploadedFiles, UseInterceptors, Delete } from '@nestjs/common';
 import { AuthGuard, } from '@nestjs/passport';
 import { v2 as cloudinary } from 'cloudinary';
 
 import { SalesService } from './sales.service';
 import { CreateSaleDto, UpdateSaleDto, BulkCreateSaleDto } from './dto/sales.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 
 interface RequestWithUser extends Request {
   user: { userId: number };
@@ -22,33 +22,39 @@ cloudinary.config({
 export class SalesController {
   constructor(private readonly salesService: SalesService) { }
 
-  @Post('upload-receipt')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadReceipt(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('No se proporcionó ningún archivo de comprobante.');
-    }
+@Post('upload-receipts')
+@UseInterceptors(FilesInterceptor('files', 3)) // Nombre del campo 'files', máximo 3
+async uploadReceipts(@UploadedFiles() files: Express.Multer.File[]) {
+  if (!files || files.length === 0) {
+    throw new BadRequestException('No se proporcionó ningún archivo de comprobante.');
+  }
 
-    try {
+  try {
+    // Subida en paralelo a Cloudinary
+    const uploadPromises = files.map((file) => {
       const base64Image = Buffer.from(file.buffer).toString('base64');
       const dataURI = `data:${file.mimetype};base64,${base64Image}`;
 
-      const cloudResult = await cloudinary.uploader.upload(dataURI, {
+      return cloudinary.uploader.upload(dataURI, {
         folder: 'ventas_comprobantes'
       });
+    });
 
-      // Retorna la URL generada
-      return { url: cloudResult.secure_url };
-    } catch (error) {
-      console.error("Error subiendo a Cloudinary:", error);
-      throw new BadRequestException('Hubo un problema al subir el comprobante de pago.');
-    }
+    const cloudResults = await Promise.all(uploadPromises);
+    const urls = cloudResults.map((result) => result.secure_url);
+
+    // Retorna arreglo con todas las URLs generadas
+    return { urls };
+  } catch (error) {
+    console.error("Error subiendo a Cloudinary:", error);
+    throw new BadRequestException('Hubo un problema al subir los comprobantes de pago.');
   }
+}
 
   @Post('register')
   async create(
     @Req() req: RequestWithUser,
-    @Body() dto: CreateSaleDto & { receiptUrl?: string }
+    @Body() dto: CreateSaleDto
   ) {
     return this.salesService.registerSale(dto, req.user.userId, dto.receiptUrl);
   }

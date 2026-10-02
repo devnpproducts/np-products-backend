@@ -647,6 +647,7 @@ export class SalesService {
                 state: data.state,
                 zipCode: data.zipCode,
                 grossAmount: data.grossAmount !== undefined ? Number(data.grossAmount) : undefined,
+                receiptUrl: data.receiptUrl !== undefined ? data.receiptUrl : undefined,
                 tax: data.tax !== undefined ? Number(data.tax) : undefined,
                 netAmount: data.netAmount !== undefined ? Number(data.netAmount) : undefined,
                 paymentMethod: data.paymentMethod,
@@ -741,15 +742,6 @@ export class SalesService {
                         id: {
                             in: idsComoNumeros,
                         },
-                        saleId: saleId,
-                    },
-                });
-            }
-
-            if (data.receiptUrl) {
-                await tx.saleReceipt.create({
-                    data: {
-                        url: data.receiptUrl,
                         saleId: saleId,
                     },
                 });
