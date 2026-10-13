@@ -101,6 +101,9 @@ export class CreateSaleDto {
   @Type(() => SaleProductDto)
   products!: SaleProductDto[];
 
+  @IsBoolean()
+  @IsOptional()
+  customerServiceSale?: boolean;
 }
 
 export class UpdateSaleDto {

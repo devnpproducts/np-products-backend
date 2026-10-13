@@ -125,6 +125,7 @@ model RegisterSales {
   paymentMethod       String
   comments            String?  @db.Text
   paymentInstallments Int      @default(0)
+  customerServiceSale Boolean? @default(false)
 
   // Datos de Pago (Sensibles)
   cardHolder String?

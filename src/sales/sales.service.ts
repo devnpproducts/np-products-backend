@@ -155,7 +155,8 @@ export class SalesService {
                             quantity: p.quantity,
                             price: p.price
                         }))
-                    }
+                    },
+                    customerServiceSale: dto.customerServiceSale
                 },
                 include: {
                     creator: { select: { name: true } },

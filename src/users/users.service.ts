@@ -59,7 +59,7 @@ export class UsersService {
       users = await this.prisma.user.findMany({
         where: {
           role: {
-            notIn: ['ADMINT', 'AFILIADO']
+            notIn: ['ADMINT', 'AFILIADO', 'DESPACHO']
           }
         },
         include: includeQuery
