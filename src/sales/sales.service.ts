@@ -52,12 +52,12 @@ export class SalesService {
         const role = requester.role?.toUpperCase() || '';
 
         // 1. ADMINT: Ve todo de manera global
-        if (role === 'ADMINT') {
+        if (role === 'ADMINT' || role === 'DESPACHO') {
             return { global: true, excludeAffiliates: false, authorizedUserIds: [] };
         }
 
         // 2. ADMIN y DESPACHO: Global, pero sin notificaciones de afiliados
-        if (role === 'ADMIN' || role === 'DESPACHO') {
+        if (role === 'ADMIN') {
             return { global: true, excludeAffiliates: true, authorizedUserIds: [] };
         }
 
@@ -335,18 +335,17 @@ export class SalesService {
     }) {
         const where: any = {};
 
-        // Si viene un sellerId, buscamos las ventas donde él sea el creador directo
         if (params.sellerId) {
             where.userCreatorId = Number(params.sellerId);
-        } else if (params.supervisorId) {
-            // Si viene un supervisorId, buscamos las de sus subordinados
+        }
+
+        else if (params.supervisorId) {
             const subordinates = await this.prisma.user.findMany({
                 where: { managerId: Number(params.supervisorId) },
                 select: { id: true }
             });
             const subIds = subordinates.map(sub => sub.id);
 
-            // Opcional: Incluir también al propio supervisor si él mismo registra ventas
             subIds.push(Number(params.supervisorId));
 
             where.userCreatorId = { in: subIds };
@@ -358,7 +357,7 @@ export class SalesService {
                 lte: new Date(`${params.endDate}T23:59:59.999Z`),
             };
         }
-        
+
         const sales = await this.prisma.registerSales.findMany({
             where,
             include: {
@@ -870,9 +869,16 @@ export class SalesService {
 
         if (access.global) {
             if (access.excludeAffiliates) {
-                salesWhere.AND = [{ OR: [{ userCreatorId: null }, { creator: { role: { not: 'AFILIADO' } } }] }];
-                prospectWhere.AND = [{ OR: [{ sellerId: null }, { seller: { role: { not: 'AFILIADO' } } }] }];
-                trendSalesWhere.AND = [{ OR: [{ userCreatorId: null }, { creator: { role: { not: 'AFILIADO' } } }] }];
+                // Buscamos primero los IDs de usuarios que NO son afiliados para evitar filtros relacionales en aggregate
+                const nonAffiliateUsers = await this.prisma.user.findMany({
+                    where: { role: { not: 'AFILIADO' } },
+                    select: { id: true }
+                });
+                const nonAffiliateIds = nonAffiliateUsers.map(u => u.id);
+
+                salesWhere.OR = [{ userCreatorId: null }, { userCreatorId: { in: nonAffiliateIds } }];
+                prospectWhere.OR = [{ sellerId: null }, { sellerId: { in: nonAffiliateIds } }];
+                trendSalesWhere.OR = [{ userCreatorId: null }, { userCreatorId: { in: nonAffiliateIds } }];
             }
         } else {
             salesWhere.userCreatorId = { in: access.authorizedUserIds };
@@ -916,7 +922,7 @@ export class SalesService {
         ]);
 
         const topSellersUsers = await this.prisma.user.findMany({
-            where: { id: { in: topSellersGroup.map(g => g.userCreatorId) } },
+            where: { id: { in: topSellersGroup.map(g => g.userCreatorId).filter(Boolean) as number[] } },
             select: { id: true, name: true }
         });
 

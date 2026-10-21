@@ -27,6 +27,8 @@ export class InvoiceGeneratorService {
             );
         }
 
+        sales.sort((a, b) => Number(a.id) - Number(b.id));
+        
         const archive = new ZipArchive({ zlib: { level: 9 } });
         const chunks: Buffer[] = [];
 

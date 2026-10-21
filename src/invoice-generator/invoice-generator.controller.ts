@@ -18,7 +18,6 @@ export class PdfController {
         @Query('endDate') endDate: string,
         @Res() res: Response
     ) {
-        
         if (!startDate || !endDate) {
             throw new NotFoundException('El rango de fechas es obligatorio');
         }
@@ -30,7 +29,12 @@ export class PdfController {
             endDate,
         });
 
-        const prefix = sellerId ? 'vendedor' : 'supervisor';
+        let prefix = 'todos';
+        if (sellerId) {
+            prefix = 'vendedor';
+        } else if (supervisorId) {
+            prefix = 'supervisor';
+        }
 
         res.set({
             'Content-Type': 'application/zip',
